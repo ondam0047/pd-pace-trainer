@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import RecentSpsChart from "./RecentSpsChart";
 import CrossModuleComparison from "./CrossModuleComparison";
+import SessionSummaryCard from "./SessionSummaryCard";
+import PatientRecordManager from "./PatientRecordManager";
 
 type ModuleType = "visual" | "audio" | "mixed";
 type FeedbackType = "빠름" | "적절" | "느림" | string;
@@ -37,6 +39,10 @@ function safeTrim(value?: string) {
 function safeNumber(value: unknown, fallback = 0) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeClientName(value?: string) {
+  return safeTrim(value).toLowerCase().replace(/\s+/g, "");
 }
 
 function loadAllRecords(): TrainingRecord[] {
@@ -164,20 +170,24 @@ export default function TrainingHistory({
   }, []);
 
   const filteredRecords = useMemo(() => {
-    const trimmedName = safeTrim(clientName).toLowerCase();
+    const normalizedName = normalizeClientName(clientName);
 
     let list = allRecords.filter((item) => item.moduleType === moduleType);
 
-    if (trimmedName) {
+    if (normalizedName) {
       list = list.filter(
-        (item) => safeTrim(item.clientName).toLowerCase() === trimmedName
+        (item) => normalizeClientName(item.clientName) === normalizedName
       );
     }
 
     return [...list]
-      .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())
+      .sort(
+        (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+      )
       .slice(0, maxItems);
   }, [allRecords, moduleType, clientName, maxItems]);
+
+  const latestRecord = filteredRecords.length > 0 ? filteredRecords[0] : null;
 
   const handleDeleteOne = (id: string) => {
     const ok = window.confirm("이 기록 1개를 삭제할까요?");
@@ -189,10 +199,12 @@ export default function TrainingHistory({
   };
 
   const handleDeleteModuleRecords = () => {
-    const trimmedName = safeTrim(clientName).toLowerCase();
+    const normalizedName = normalizeClientName(clientName);
 
-    const message = trimmedName
-      ? `${clientName}님의 ${getModuleLabel(moduleType)} 훈련 기록을 모두 삭제할까요?`
+    const message = normalizedName
+      ? `${clientName}님의 ${getModuleLabel(
+          moduleType
+        )} 훈련 기록을 모두 삭제할까요?`
       : `${getModuleLabel(moduleType)} 훈련 기록을 모두 삭제할까요?`;
 
     const ok = window.confirm(message);
@@ -201,8 +213,8 @@ export default function TrainingHistory({
     const next = allRecords.filter((item) => {
       const sameModule = item.moduleType === moduleType;
       const sameClient =
-        !trimmedName ||
-        safeTrim(item.clientName).toLowerCase() === trimmedName;
+        !normalizedName ||
+        normalizeClientName(item.clientName) === normalizedName;
 
       return !(sameModule && sameClient);
     });
@@ -266,12 +278,22 @@ export default function TrainingHistory({
     return (
       <section className="space-y-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="mb-2 text-lg font-bold text-slate-800">이번 회기 요약</h3>
+          <p className="text-sm text-slate-500">기록을 불러오는 중입니다.</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="mb-2 text-lg font-bold text-slate-800">최근 SPS 변화</h3>
           <p className="text-sm text-slate-500">기록을 불러오는 중입니다.</p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="mb-2 text-lg font-bold text-slate-800">같은 사용자 모듈 비교</h3>
+          <p className="text-sm text-slate-500">기록을 불러오는 중입니다.</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="mb-2 text-lg font-bold text-slate-800">환자별 기록 정리</h3>
           <p className="text-sm text-slate-500">기록을 불러오는 중입니다.</p>
         </div>
 
@@ -285,6 +307,11 @@ export default function TrainingHistory({
 
   return (
     <section className="space-y-4">
+      <SessionSummaryCard
+        record={latestRecord}
+        title="이번 회기 요약"
+      />
+
       <RecentSpsChart
         moduleType={moduleType}
         clientName={clientName}
@@ -295,6 +322,12 @@ export default function TrainingHistory({
       <CrossModuleComparison
         clientName={clientName}
         title="같은 사용자 모듈 비교"
+      />
+
+      <PatientRecordManager
+        clientName={clientName}
+        allRecords={allRecords}
+        title="환자별 기록 정리"
       />
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -314,7 +347,7 @@ export default function TrainingHistory({
               onClick={handleDownloadCsv}
               className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
-              CSV 다운로드
+              현재 목록 CSV
             </button>
 
             <button
