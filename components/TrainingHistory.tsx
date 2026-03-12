@@ -5,6 +5,7 @@ import RecentSpsChart from "./RecentSpsChart";
 import CrossModuleComparison from "./CrossModuleComparison";
 import SessionSummaryCard from "./SessionSummaryCard";
 import PatientRecordManager from "./PatientRecordManager";
+import MonthlyReportCard from "./MonthlyReportCard";
 
 type ModuleType = "visual" | "audio" | "mixed";
 type FeedbackType = "빠름" | "적절" | "느림" | string;
@@ -283,6 +284,11 @@ export default function TrainingHistory({
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="mb-2 text-lg font-bold text-slate-800">치료자용 월간 리포트</h3>
+          <p className="text-sm text-slate-500">기록을 불러오는 중입니다.</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="mb-2 text-lg font-bold text-slate-800">최근 SPS 변화</h3>
           <p className="text-sm text-slate-500">기록을 불러오는 중입니다.</p>
         </div>
@@ -307,9 +313,13 @@ export default function TrainingHistory({
 
   return (
     <section className="space-y-4">
-      <SessionSummaryCard
-        record={latestRecord}
-        title="이번 회기 요약"
+      <SessionSummaryCard record={latestRecord} title="이번 회기 요약" />
+
+      <MonthlyReportCard
+        clientName={clientName}
+        allRecords={allRecords}
+        title="치료자용 월간 리포트"
+        days={30}
       />
 
       <RecentSpsChart
