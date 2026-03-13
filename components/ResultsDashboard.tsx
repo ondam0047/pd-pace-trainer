@@ -63,6 +63,12 @@ function readHistory(): TrainingItem[] {
   }
 }
 
+function writeHistory(items: TrainingItem[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  window.dispatchEvent(new Event("pd-training-history-updated"));
+}
+
 function formatDateTime(value: string) {
   if (!value) return "-";
 
@@ -253,13 +259,14 @@ export default function ResultsDashboard({ clientName }: Props) {
   }, []);
 
   const normalizedClientName = (clientName ?? "").trim();
+  const hasSelectedClient = normalizedClientName.length > 0;
 
   const filteredItems = useMemo(() => {
-    if (!normalizedClientName) return items;
+    if (!hasSelectedClient) return [];
     return items.filter(
       (item) => (item.clientName ?? "").trim() === normalizedClientName
     );
-  }, [items, normalizedClientName]);
+  }, [items, normalizedClientName, hasSelectedClient]);
 
   const latest = filteredItems[0] ?? null;
 
@@ -274,16 +281,6 @@ export default function ResultsDashboard({ clientName }: Props) {
       measured: row.measuredSps,
     }));
   }, [recent10]);
-
-  const monthlyItems = useMemo(() => {
-    const now = Date.now();
-    const DAYS_30 = 1000 * 60 * 60 * 24 * 30;
-
-    return filteredItems.filter((item) => {
-      const time = new Date(item.savedAt).getTime();
-      return !Number.isNaN(time) && now - time <= DAYS_30;
-    });
-  }, [filteredItems]);
 
   const moduleStats = useMemo(() => {
     const base: Record<
@@ -359,14 +356,63 @@ export default function ResultsDashboard({ clientName }: Props) {
     };
   }, [filteredItems]);
 
+  function handleDeleteCurrentClientRecords() {
+    if (!hasSelectedClient) return;
+
+    const recordCount = filteredItems.length;
+
+    if (recordCount === 0) {
+      alert("삭제할 기록이 없습니다.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `'${normalizedClientName}' 대상자의 기록 ${recordCount}건을 모두 삭제할까요?\n이 작업은 되돌릴 수 없습니다.`
+    );
+
+    if (!confirmed) return;
+
+    const remainingItems = items.filter(
+      (item) => (item.clientName ?? "").trim() !== normalizedClientName
+    );
+
+    writeHistory(remainingItems);
+    setItems(remainingItems);
+  }
+
+  if (!hasSelectedClient) {
+    return (
+      <section className="rounded-2xl bg-white p-8 shadow-sm">
+        <h2 className="text-2xl font-semibold text-slate-900">결과 대시보드</h2>
+        <p className="mt-3 text-sm text-slate-600">
+          홈에서 대상자 이름을 먼저 저장한 뒤 결과를 확인하세요.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-2xl bg-white p-6 shadow-sm">
-        <h2 className="text-2xl font-semibold text-slate-900">이번 회기 요약</h2>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold text-slate-900">이번 회기 요약</h2>
+            <p className="mt-2 text-sm text-slate-500">
+              현재 대상자: <span className="font-medium text-slate-700">{normalizedClientName}</span>
+            </p>
+          </div>
+
+          <button
+            onClick={handleDeleteCurrentClientRecords}
+            className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+          >
+            현재 대상자 기록 전체 삭제
+          </button>
+        </div>
 
         {!latest ? (
           <p className="mt-4 text-sm text-slate-500">
-            표시할 저장 기록이 없습니다.
+            선택한 대상자의 저장 기록이 없습니다.
           </p>
         ) : (
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -538,12 +584,7 @@ export default function ResultsDashboard({ clientName }: Props) {
         <div className="mt-5 flex flex-wrap gap-3">
           <button
             onClick={() =>
-              downloadCsv(
-                normalizedClientName
-                  ? `${normalizedClientName}_all_records.csv`
-                  : "all_records.csv",
-                filteredItems
-              )
+              downloadCsv(`${normalizedClientName}_all_records.csv`, filteredItems)
             }
             className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white"
           >
@@ -553,9 +594,7 @@ export default function ResultsDashboard({ clientName }: Props) {
           <button
             onClick={() =>
               downloadCsv(
-                normalizedClientName
-                  ? `${normalizedClientName}_visual_records.csv`
-                  : "visual_records.csv",
+                `${normalizedClientName}_visual_records.csv`,
                 filteredItems.filter((row) => row.moduleType === "visual")
               )
             }
@@ -567,9 +606,7 @@ export default function ResultsDashboard({ clientName }: Props) {
           <button
             onClick={() =>
               downloadCsv(
-                normalizedClientName
-                  ? `${normalizedClientName}_audio_records.csv`
-                  : "audio_records.csv",
+                `${normalizedClientName}_audio_records.csv`,
                 filteredItems.filter((row) => row.moduleType === "audio")
               )
             }
@@ -581,9 +618,7 @@ export default function ResultsDashboard({ clientName }: Props) {
           <button
             onClick={() =>
               downloadCsv(
-                normalizedClientName
-                  ? `${normalizedClientName}_mixed_records.csv`
-                  : "mixed_records.csv",
+                `${normalizedClientName}_mixed_records.csv`,
                 filteredItems.filter((row) => row.moduleType === "mixed")
               )
             }
@@ -598,7 +633,7 @@ export default function ResultsDashboard({ clientName }: Props) {
         <h2 className="text-2xl font-semibold text-slate-900">최근 기록 목록</h2>
 
         {!filteredItems.length ? (
-          <p className="mt-4 text-sm text-slate-500">저장된 기록이 없습니다.</p>
+          <p className="mt-4 text-sm text-slate-500">선택한 대상자의 저장 기록이 없습니다.</p>
         ) : (
           <div className="mt-5 overflow-x-auto">
             <table className="min-w-full border-collapse text-sm">
