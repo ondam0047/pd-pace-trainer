@@ -26,6 +26,31 @@ type Props = {
   days?: number;
 };
 
+type ModuleStat = {
+  moduleType: ModuleType;
+  count: number;
+  avgMeasured: number;
+  avgTarget: number;
+  properRate: number;
+  distance: number;
+};
+
+type MonthlyReportData = {
+  totalCount: number;
+  periodText: string;
+  avgMeasured: number;
+  avgTarget: number;
+  properRate: number;
+  first3Avg: number;
+  last3Avg: number;
+  trendDiff: number;
+  statsByModule: ModuleStat[];
+  summaryText1: string;
+  summaryText2: string;
+  summaryText3: string;
+  summaryText4: string;
+};
+
 function safeTrim(value?: string) {
   return (value ?? "").trim();
 }
@@ -58,23 +83,20 @@ function calcAverage(values: number[]) {
 }
 
 function getTrendText(diff: number) {
-  if (Math.abs(diff) < 0.05) return "초기 회기와 최근 회기 간 평균 SPS 변화가 크지 않았습니다.";
-  if (diff > 0) return `최근 회기 평균 SPS가 초기 회기보다 ${diff.toFixed(2)} 높았습니다.`;
+  if (Math.abs(diff) < 0.05) {
+    return "초기 회기와 최근 회기 간 평균 SPS 변화가 크지 않았습니다.";
+  }
+  if (diff > 0) {
+    return `최근 회기 평균 SPS가 초기 회기보다 ${diff.toFixed(2)} 높았습니다.`;
+  }
   return `최근 회기 평균 SPS가 초기 회기보다 ${Math.abs(diff).toFixed(2)} 낮았습니다.`;
 }
 
-function getClosestModuleText(
-  statsByModule: Array<{
-    moduleType: ModuleType;
-    count: number;
-    avgMeasured: number;
-    avgTarget: number;
-    properRate: number;
-    distance: number;
-  }>
-) {
+function getClosestModuleText(statsByModule: ModuleStat[]) {
   const candidates = statsByModule.filter((item) => item.count > 0);
-  if (candidates.length === 0) return "아직 비교할 모듈 기록이 부족합니다.";
+  if (candidates.length === 0) {
+    return "아직 비교할 모듈 기록이 부족합니다.";
+  }
 
   const closest = [...candidates].sort((a, b) => a.distance - b.distance)[0];
   return `목표 SPS에 가장 근접한 모듈은 ${getModuleLabel(
@@ -82,18 +104,11 @@ function getClosestModuleText(
   )} 조건이었습니다.`;
 }
 
-function getStableModuleText(
-  statsByModule: Array<{
-    moduleType: ModuleType;
-    count: number;
-    avgMeasured: number;
-    avgTarget: number;
-    properRate: number;
-    distance: number;
-  }>
-) {
+function getStableModuleText(statsByModule: ModuleStat[]) {
   const candidates = statsByModule.filter((item) => item.count > 0);
-  if (candidates.length === 0) return "아직 안정성을 비교할 충분한 기록이 없습니다.";
+  if (candidates.length === 0) {
+    return "아직 안정성을 비교할 충분한 기록이 없습니다.";
+  }
 
   const best = [...candidates].sort((a, b) => {
     if (b.properRate !== a.properRate) return b.properRate - a.properRate;
@@ -114,7 +129,7 @@ export default function MonthlyReportCard({
   const trimmedName = safeTrim(clientName);
   const normalizedName = normalizeClientName(clientName);
 
-  const report = useMemo(() => {
+  const report = useMemo<MonthlyReportData | null>(() => {
     if (!normalizedName) return null;
 
     const now = new Date();
@@ -127,16 +142,12 @@ export default function MonthlyReportCard({
         const saved = new Date(item.savedAt);
         return !Number.isNaN(saved.getTime()) && saved >= startDate && saved <= now;
       })
-      .sort((a, b) => new Date(a.savedAt).getTime() - new Date(b.savedAt).getTime());
+      .sort(
+        (a, b) => new Date(a.savedAt).getTime() - new Date(b.savedAt).getTime()
+      );
 
     const totalCount = filtered.length;
-
-    if (totalCount === 0) {
-      return {
-        totalCount: 0,
-        periodText: `${formatDate(startDate)} ~ ${formatDate(now)}`,
-      };
-    }
+    if (totalCount === 0) return null;
 
     const measuredList = filtered.map((item) => safeNumber(item.measuredSps, 0));
     const targetList = filtered.map((item) => safeNumber(item.targetSps, 0));
@@ -158,7 +169,7 @@ export default function MonthlyReportCard({
     const trendDiff = last3Avg - first3Avg;
 
     const modules: ModuleType[] = ["visual", "audio", "mixed"];
-    const statsByModule = modules.map((moduleType) => {
+    const statsByModule: ModuleStat[] = modules.map((moduleType) => {
       const items = filtered.filter((item) => item.moduleType === moduleType);
       const count = items.length;
       const avgMeasuredModule = calcAverage(
@@ -182,14 +193,6 @@ export default function MonthlyReportCard({
       };
     });
 
-    const summaryText1 = `${days}일 동안 총 ${totalCount}회의 훈련이 저장되었습니다. 전체 평균 SPS는 ${avgMeasured.toFixed(
-      2
-    )}, 적절 비율은 ${properRate.toFixed(0)}%였습니다.`;
-
-    const summaryText2 = getTrendText(trendDiff);
-    const summaryText3 = getClosestModuleText(statsByModule);
-    const summaryText4 = getStableModuleText(statsByModule);
-
     return {
       totalCount,
       periodText: `${formatDate(startDate)} ~ ${formatDate(now)}`,
@@ -200,10 +203,12 @@ export default function MonthlyReportCard({
       last3Avg,
       trendDiff,
       statsByModule,
-      summaryText1,
-      summaryText2,
-      summaryText3,
-      summaryText4,
+      summaryText1: `${days}일 동안 총 ${totalCount}회의 훈련이 저장되었습니다. 전체 평균 SPS는 ${avgMeasured.toFixed(
+        2
+      )}, 적절 비율은 ${properRate.toFixed(0)}%였습니다.`,
+      summaryText2: getTrendText(trendDiff),
+      summaryText3: getClosestModuleText(statsByModule),
+      summaryText4: getStableModuleText(statsByModule),
     };
   }, [allRecords, normalizedName, days]);
 
@@ -218,7 +223,7 @@ export default function MonthlyReportCard({
     );
   }
 
-  if (!report || report.totalCount === 0) {
+  if (!report) {
     return (
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h3 className="mb-2 text-lg font-bold text-slate-800">{title}</h3>
@@ -315,7 +320,7 @@ export default function MonthlyReportCard({
                   </p>
                 </div>
 
-                <div className="rounded-xl bg-white p-3 col-span-2">
+                <div className="col-span-2 rounded-xl bg-white p-3">
                   <p className="mb-1 text-xs text-slate-500">적절 비율</p>
                   <p className="text-sm font-semibold text-slate-800">
                     {item.properRate.toFixed(0)}%
