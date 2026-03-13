@@ -1,9 +1,9 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import TrainingComparisonSummary from "./TrainingComparisonSummary";
-import TrainingHistory from "./TrainingHistory";
+import { getCurrentSession } from "@/components/currentSessionStorage";
 import { PRESET_TEXTS } from "./presetTexts";
 import {
   ChunkMode,
@@ -87,8 +87,8 @@ function getStatusStyle(statusText: string): React.CSSProperties {
 }
 
 export default function PacingBar() {
-  const [clientName, setClientName] = useState(DEFAULT_SETTINGS.clientName);
-  const [sessionNote, setSessionNote] = useState(DEFAULT_SETTINGS.sessionNote);
+  const [clientName, setClientName] = useState("");
+  const [sessionNote, setSessionNote] = useState("");
   const [practiceText, setPracticeText] = useState(DEFAULT_SETTINGS.practiceText);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
     DEFAULT_SETTINGS.selectedPresetId
@@ -96,9 +96,7 @@ export default function PacingBar() {
   const [targetSps, setTargetSps] = useState(DEFAULT_SETTINGS.targetSps);
   const [chunkMode, setChunkMode] = useState<ChunkMode>(DEFAULT_SETTINGS.chunkMode);
   const [pauseSec, setPauseSec] = useState(DEFAULT_SETTINGS.pauseSec);
-  const [displayFontSize, setDisplayFontSize] = useState(
-    DEFAULT_SETTINGS.displayFontSize
-  );
+  const [displayFontSize, setDisplayFontSize] = useState(DEFAULT_SETTINGS.displayFontSize);
   const [hasLoadedSettings, setHasLoadedSettings] = useState(false);
 
   const [isRunning, setIsRunning] = useState(false);
@@ -116,27 +114,27 @@ export default function PacingBar() {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingStartRef = useRef<number | null>(null);
   const timeoutsRef = useRef<number[]>([]);
+  const loadedNameRef = useRef("");
 
   const chunks = useMemo(
     () => splitIntoChunks(practiceText, chunkMode),
     [practiceText, chunkMode]
   );
 
-  const totalSyllables = useMemo(
-    () => countKoreanSyllables(practiceText),
-    [practiceText]
-  );
+  const totalSyllables = useMemo(() => countKoreanSyllables(practiceText), [practiceText]);
 
   const targetTotalSec = useMemo(() => {
     if (targetSps <= 0) return 0;
     return totalSyllables / targetSps;
   }, [totalSyllables, targetSps]);
 
-  useEffect(() => {
-    const saved = loadTrainingSettings("visual", DEFAULT_SETTINGS);
+  function applySessionAndNamedSettings(nextName: string, nextNote: string) {
+    const normalizedName = (nextName ?? "").trim();
+    const saved = loadTrainingSettings("visual", DEFAULT_SETTINGS, normalizedName);
 
-    setClientName(saved.clientName);
-    setSessionNote(saved.sessionNote);
+    loadedNameRef.current = normalizedName;
+    setClientName(normalizedName);
+    setSessionNote(nextNote ?? "");
     setPracticeText(saved.practiceText);
     setSelectedPresetId(saved.selectedPresetId);
     setTargetSps(saved.targetSps);
@@ -144,6 +142,25 @@ export default function PacingBar() {
     setPauseSec(saved.pauseSec);
     setDisplayFontSize(saved.displayFontSize);
     setHasLoadedSettings(true);
+  }
+
+  useEffect(() => {
+    const current = getCurrentSession();
+    applySessionAndNamedSettings(current.clientName ?? "", current.sessionNote ?? "");
+  }, []);
+
+  useEffect(() => {
+    const handleSessionUpdated = () => {
+      const current = getCurrentSession();
+      const nextName = (current.clientName ?? "").trim();
+      const nextNote = current.sessionNote ?? "";
+      applySessionAndNamedSettings(nextName, nextNote);
+    };
+
+    window.addEventListener("pd-current-session-updated", handleSessionUpdated);
+    return () => {
+      window.removeEventListener("pd-current-session-updated", handleSessionUpdated);
+    };
   }, []);
 
   useEffect(() => {
@@ -197,9 +214,7 @@ export default function PacingBar() {
   function resetSettingsToDefault() {
     if (isRunning) return;
 
-    clearTrainingSettings("visual");
-    setClientName(DEFAULT_SETTINGS.clientName);
-    setSessionNote(DEFAULT_SETTINGS.sessionNote);
+    clearTrainingSettings("visual", clientName);
     setPracticeText(DEFAULT_SETTINGS.practiceText);
     setSelectedPresetId(DEFAULT_SETTINGS.selectedPresetId);
     setTargetSps(DEFAULT_SETTINGS.targetSps);
@@ -327,12 +342,20 @@ export default function PacingBar() {
     setIsRunning(true);
     setStatusText("훈련 진행 중");
 
-    let accumulatedMs = 0;
-    const totalMs = targetTotalSec * 1000;
-
-    chunks.forEach((chunk, index) => {
+    // 핵심 수정: 진행바 총시간에 pause를 포함
+    const chunkDurations = chunks.map((chunk) => {
       const syllables = Math.max(countKoreanSyllables(chunk), 1);
-      const chunkMs = (syllables / targetSps) * 1000;
+      return (syllables / targetSps) * 1000;
+    });
+
+    const totalTimelineMs =
+      chunkDurations.reduce((sum, ms) => sum + ms, 0) +
+      Math.max(chunks.length - 1, 0) * pauseSec * 1000;
+
+    let accumulatedMs = 0;
+
+    chunks.forEach((_, index) => {
+      const chunkMs = chunkDurations[index];
       const startMs = accumulatedMs;
       const endMs = startMs + chunkMs;
 
@@ -341,16 +364,21 @@ export default function PacingBar() {
       }, startMs);
 
       const progressTimeout = window.setTimeout(() => {
-        setBallProgress(Math.min((endMs / totalMs) * 100, 100));
+        const progress = totalTimelineMs > 0 ? (endMs / totalTimelineMs) * 100 : 0;
+        setBallProgress(Math.min(progress, 100));
       }, endMs);
 
       timeoutsRef.current.push(startTimeout, progressTimeout);
-      accumulatedMs = endMs + pauseSec * 1000;
+
+      accumulatedMs = endMs;
+      if (index < chunks.length - 1) {
+        accumulatedMs += pauseSec * 1000;
+      }
     });
 
     const finishTimeout = window.setTimeout(() => {
       finishTraining();
-    }, accumulatedMs);
+    }, totalTimelineMs);
 
     timeoutsRef.current.push(finishTimeout);
   }
@@ -374,10 +402,44 @@ export default function PacingBar() {
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
+      <section style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16, background: "#fff" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <h1 style={{ margin: 0, fontSize: 24, color: "#1f5fae" }}>시각 단서 훈련</h1>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Link
+              href="/"
+              style={{
+                padding: "10px 14px",
+                borderRadius: 10,
+                border: "1px solid #d0d7de",
+                background: "#fff",
+                color: "#333",
+                textDecoration: "none",
+                fontWeight: 600,
+              }}
+            >
+              홈으로
+            </Link>
+            <Link
+              href="/results"
+              style={{
+                padding: "10px 14px",
+                borderRadius: 10,
+                border: "1px solid #b9d9ff",
+                background: "#f4f9ff",
+                color: "#1f5fae",
+                textDecoration: "none",
+                fontWeight: 600,
+              }}
+            >
+              결과 보기
+            </Link>
+          </div>
+        </div>
+      </section>
+
       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 20 }}>
         <section style={{ border: "1px solid #ddd", borderRadius: 12, padding: 20, background: "#fff" }}>
-          <h2 style={{ marginTop: 0, color: "#1f5fae" }}>시각 단서 훈련</h2>
-
           <div
             style={{
               display: "grid",
@@ -391,20 +453,18 @@ export default function PacingBar() {
               <input
                 type="text"
                 value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                placeholder="예: 김OO / patient01"
-                style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+                readOnly
+                style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc", background: "#f8fafc" }}
               />
             </label>
 
             <label style={{ display: "grid", gap: 8 }}>
-              <strong>세션 메모 (선택)</strong>
+              <strong>세션 메모</strong>
               <input
                 type="text"
                 value={sessionNote}
-                onChange={(e) => setSessionNote(e.target.value)}
-                placeholder="예: 외래 2회기 / 속도 과다 경향"
-                style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+                readOnly
+                style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc", background: "#f8fafc" }}
               />
             </label>
           </div>
@@ -424,7 +484,7 @@ export default function PacingBar() {
                   cursor: isRunning ? "not-allowed" : "pointer",
                 }}
               >
-                기본값으로 초기화
+                이 사용자의 설정 초기화
               </button>
             </div>
 
@@ -625,17 +685,6 @@ export default function PacingBar() {
           </div>
         )}
       </section>
-
-      <TrainingComparisonSummary
-        moduleType="visual"
-        title="시각 단서 훈련 결과 비교"
-        clientName={clientName}
-      />
-
-      <TrainingHistory
-  moduleType="visual"
-  clientName={clientName}
-/>
     </div>
   );
 }
