@@ -4,7 +4,6 @@ import React from "react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentSession } from "@/components/currentSessionStorage";
-import { PRESET_TEXTS } from "./presetTexts";
 import {
   ChunkMode,
   clearTrainingSettings,
@@ -13,6 +12,13 @@ import {
   type TrainingModuleSettings,
 } from "./trainingSettingsStorage";
 import { saveTrainingRecord } from "./trainingStorage";
+import {
+  CustomPreset,
+  deleteClientPreset,
+  loadClientPresets,
+  resetClientPresets,
+  upsertClientPreset,
+} from "./presetStorage";
 
 const DEFAULT_SETTINGS: TrainingModuleSettings = {
   clientName: "",
@@ -90,14 +96,16 @@ export default function MetronomeTrainer() {
   const [clientName, setClientName] = useState("");
   const [sessionNote, setSessionNote] = useState("");
   const [practiceText, setPracticeText] = useState(DEFAULT_SETTINGS.practiceText);
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
-    DEFAULT_SETTINGS.selectedPresetId
-  );
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(DEFAULT_SETTINGS.selectedPresetId);
   const [targetSps, setTargetSps] = useState(DEFAULT_SETTINGS.targetSps);
   const [chunkMode, setChunkMode] = useState<ChunkMode>(DEFAULT_SETTINGS.chunkMode);
   const [pauseSec, setPauseSec] = useState(DEFAULT_SETTINGS.pauseSec);
   const [displayFontSize, setDisplayFontSize] = useState(DEFAULT_SETTINGS.displayFontSize);
   const [hasLoadedSettings, setHasLoadedSettings] = useState(false);
+
+  const [presets, setPresets] = useState<CustomPreset[]>([]);
+  const [presetLabelInput, setPresetLabelInput] = useState("");
+  const [presetTextInput, setPresetTextInput] = useState("");
 
   const [isRunning, setIsRunning] = useState(false);
   const [activeChunkIndex, setActiveChunkIndex] = useState(-1);
@@ -114,13 +122,8 @@ export default function MetronomeTrainer() {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingStartRef = useRef<number | null>(null);
   const timeoutsRef = useRef<number[]>([]);
-  const loadedNameRef = useRef("");
 
-  const chunks = useMemo(
-    () => splitIntoChunks(practiceText, chunkMode),
-    [practiceText, chunkMode]
-  );
-
+  const chunks = useMemo(() => splitIntoChunks(practiceText, chunkMode), [practiceText, chunkMode]);
   const totalSyllables = useMemo(() => countKoreanSyllables(practiceText), [practiceText]);
 
   const targetTotalSec = useMemo(() => {
@@ -128,11 +131,11 @@ export default function MetronomeTrainer() {
     return totalSyllables / targetSps;
   }, [targetSps, totalSyllables]);
 
-  function applySessionAndNamedSettings(nextName: string, nextNote: string) {
+  function syncForClient(nextName: string, nextNote: string) {
     const normalizedName = (nextName ?? "").trim();
     const saved = loadTrainingSettings("audio", DEFAULT_SETTINGS, normalizedName);
+    const nextPresets = loadClientPresets(normalizedName);
 
-    loadedNameRef.current = normalizedName;
     setClientName(normalizedName);
     setSessionNote(nextNote ?? "");
     setPracticeText(saved.practiceText);
@@ -141,20 +144,25 @@ export default function MetronomeTrainer() {
     setChunkMode(saved.chunkMode);
     setPauseSec(saved.pauseSec);
     setDisplayFontSize(saved.displayFontSize);
+    setPresets(nextPresets);
     setHasLoadedSettings(true);
+
+    const selectedPreset =
+      nextPresets.find((preset) => preset.id === saved.selectedPresetId) ?? null;
+
+    setPresetLabelInput(selectedPreset?.label ?? "");
+    setPresetTextInput(selectedPreset?.text ?? "");
   }
 
   useEffect(() => {
     const current = getCurrentSession();
-    applySessionAndNamedSettings(current.clientName ?? "", current.sessionNote ?? "");
+    syncForClient(current.clientName ?? "", current.sessionNote ?? "");
   }, []);
 
   useEffect(() => {
     const handleSessionUpdated = () => {
       const current = getCurrentSession();
-      const nextName = (current.clientName ?? "").trim();
-      const nextNote = current.sessionNote ?? "";
-      applySessionAndNamedSettings(nextName, nextNote);
+      syncForClient(current.clientName ?? "", current.sessionNote ?? "");
     };
 
     window.addEventListener("pd-current-session-updated", handleSessionUpdated);
@@ -192,9 +200,7 @@ export default function MetronomeTrainer() {
     return () => {
       clearAllTimers();
       stopRecording(false);
-      if (recordedAudioUrl) {
-        URL.revokeObjectURL(recordedAudioUrl);
-      }
+      if (recordedAudioUrl) URL.revokeObjectURL(recordedAudioUrl);
     };
   }, [recordedAudioUrl]);
 
@@ -216,17 +222,90 @@ export default function MetronomeTrainer() {
 
     clearTrainingSettings("audio", clientName);
     setPracticeText(DEFAULT_SETTINGS.practiceText);
-    setSelectedPresetId(DEFAULT_SETTINGS.selectedPresetId);
+    setSelectedPresetId(null);
     setTargetSps(DEFAULT_SETTINGS.targetSps);
     setChunkMode(DEFAULT_SETTINGS.chunkMode);
     setPauseSec(DEFAULT_SETTINGS.pauseSec);
     setDisplayFontSize(DEFAULT_SETTINGS.displayFontSize);
   }
 
-  function applyPreset(presetId: string, text: string) {
+  function handleSelectPreset(preset: CustomPreset) {
     if (isRunning) return;
-    setSelectedPresetId(presetId);
-    setPracticeText(text);
+    setSelectedPresetId(preset.id);
+    setPracticeText(preset.text);
+    setPresetLabelInput(preset.label);
+    setPresetTextInput(preset.text);
+  }
+
+  function handleNewPreset() {
+    setSelectedPresetId(null);
+    setPresetLabelInput("");
+    setPresetTextInput(practiceText.trim() || "");
+  }
+
+  function handleSavePreset() {
+    if (!clientName.trim()) {
+      alert("홈에서 대상자 이름을 먼저 저장해주세요.");
+      return;
+    }
+
+    const nextLabel = presetLabelInput.trim();
+    const nextText = presetTextInput.trim();
+
+    if (!nextLabel || !nextText) {
+      alert("preset 이름과 문구를 입력해주세요.");
+      return;
+    }
+
+    const nextPreset: CustomPreset = {
+      id: selectedPresetId ?? crypto.randomUUID(),
+      label: nextLabel,
+      text: nextText,
+    };
+
+    const nextPresets = upsertClientPreset(clientName, nextPreset);
+    setPresets(nextPresets);
+    setSelectedPresetId(nextPreset.id);
+    setPracticeText(nextPreset.text);
+    setPresetLabelInput(nextPreset.label);
+    setPresetTextInput(nextPreset.text);
+  }
+
+  function handleDeletePreset() {
+    if (!clientName.trim()) {
+      alert("홈에서 대상자 이름을 먼저 저장해주세요.");
+      return;
+    }
+    if (!selectedPresetId) {
+      alert("삭제할 preset을 먼저 선택해주세요.");
+      return;
+    }
+
+    const ok = window.confirm("선택한 preset을 삭제할까요?");
+    if (!ok) return;
+
+    const nextPresets = deleteClientPreset(clientName, selectedPresetId);
+    setPresets(nextPresets);
+    setSelectedPresetId(null);
+    setPresetLabelInput("");
+    setPresetTextInput("");
+  }
+
+  function handleResetPresets() {
+    if (!clientName.trim()) {
+      alert("홈에서 대상자 이름을 먼저 저장해주세요.");
+      return;
+    }
+
+    const ok = window.confirm("현재 대상자의 preset을 기본값으로 되돌릴까요?");
+    if (!ok) return;
+
+    resetClientPresets(clientName);
+    const nextPresets = loadClientPresets(clientName);
+    setPresets(nextPresets);
+    setSelectedPresetId(null);
+    setPresetLabelInput("");
+    setPresetTextInput("");
   }
 
   function playCue() {
@@ -270,17 +349,13 @@ export default function MetronomeTrainer() {
       recordingStartRef.current = performance.now();
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = () => {
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
 
-        if (recordedAudioUrl) {
-          URL.revokeObjectURL(recordedAudioUrl);
-        }
+        if (recordedAudioUrl) URL.revokeObjectURL(recordedAudioUrl);
 
         const url = URL.createObjectURL(blob);
         setRecordedAudioUrl(url);
@@ -327,11 +402,7 @@ export default function MetronomeTrainer() {
   }
 
   function stopRecording(shouldStopRecorder = true) {
-    if (
-      shouldStopRecorder &&
-      mediaRecorderRef.current &&
-      mediaRecorderRef.current.state !== "inactive"
-    ) {
+    if (shouldStopRecorder && mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     } else {
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -380,9 +451,7 @@ export default function MetronomeTrainer() {
       timeoutsRef.current.push(timeoutId);
 
       accumulatedMs += chunkMs;
-      if (index < chunks.length - 1) {
-        accumulatedMs += pauseSec * 1000;
-      }
+      if (index < chunks.length - 1) accumulatedMs += pauseSec * 1000;
     });
 
     const finishTimeout = window.setTimeout(() => {
@@ -414,32 +483,10 @@ export default function MetronomeTrainer() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <h1 style={{ margin: 0, fontSize: 24, color: "#9a6200" }}>청각 단서 훈련</h1>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Link
-              href="/"
-              style={{
-                padding: "10px 14px",
-                borderRadius: 10,
-                border: "1px solid #d0d7de",
-                background: "#fff",
-                color: "#333",
-                textDecoration: "none",
-                fontWeight: 600,
-              }}
-            >
+            <Link href="/" style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d0d7de", background: "#fff", color: "#333", textDecoration: "none", fontWeight: 600 }}>
               홈으로
             </Link>
-            <Link
-              href="/results"
-              style={{
-                padding: "10px 14px",
-                borderRadius: 10,
-                border: "1px solid #f0cf8b",
-                background: "#fff9ef",
-                color: "#9a6200",
-                textDecoration: "none",
-                fontWeight: 600,
-              }}
-            >
+            <Link href="/results" style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #f0cf8b", background: "#fff9ef", color: "#9a6200", textDecoration: "none", fontWeight: 600 }}>
               결과 보기
             </Link>
           </div>
@@ -448,70 +495,43 @@ export default function MetronomeTrainer() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 20 }}>
         <section style={{ border: "1px solid #ddd", borderRadius: 12, padding: 20, background: "#fff" }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-              gap: 16,
-              marginBottom: 16,
-            }}
-          >
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 16, marginBottom: 16 }}>
             <label style={{ display: "grid", gap: 8 }}>
               <strong>사용자 이름 / ID</strong>
-              <input
-                type="text"
-                value={clientName}
-                readOnly
-                style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc", background: "#f8fafc" }}
-              />
+              <input type="text" value={clientName} readOnly style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc", background: "#f8fafc" }} />
             </label>
 
             <label style={{ display: "grid", gap: 8 }}>
               <strong>세션 메모</strong>
-              <input
-                type="text"
-                value={sessionNote}
-                readOnly
-                style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc", background: "#f8fafc" }}
-              />
+              <input type="text" value={sessionNote} readOnly style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc", background: "#f8fafc" }} />
             </label>
           </div>
 
           <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-              <strong>preset 문구</strong>
+              <strong>현재 대상자 preset</strong>
               <button
                 type="button"
                 onClick={resetSettingsToDefault}
                 disabled={isRunning}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: "1px solid #ead7a7",
-                  background: "#fffaf2",
-                  cursor: isRunning ? "not-allowed" : "pointer",
-                }}
+                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #ead7a7", background: "#fffaf2", cursor: isRunning ? "not-allowed" : "pointer" }}
               >
                 이 사용자의 설정 초기화
               </button>
             </div>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {PRESET_TEXTS.map((preset) => (
+              {presets.map((preset) => (
                 <button
                   key={preset.id}
                   type="button"
-                  onClick={() => applyPreset(preset.id, preset.text)}
+                  onClick={() => handleSelectPreset(preset)}
                   disabled={isRunning}
                   style={{
                     padding: "8px 12px",
                     borderRadius: 999,
-                    border:
-                      selectedPresetId === preset.id
-                        ? "1px solid #f0cf8b"
-                        : "1px solid #ead7a7",
-                    background:
-                      selectedPresetId === preset.id ? "#fff0cc" : "#fff9ef",
+                    border: selectedPresetId === preset.id ? "1px solid #f0cf8b" : "1px solid #ead7a7",
+                    background: selectedPresetId === preset.id ? "#fff0cc" : "#fff9ef",
                     color: "#9a6200",
                     cursor: isRunning ? "not-allowed" : "pointer",
                     fontWeight: selectedPresetId === preset.id ? 700 : 500,
@@ -520,6 +540,47 @@ export default function MetronomeTrainer() {
                   {preset.label}
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fafafa", marginBottom: 16 }}>
+            <div style={{ display: "grid", gap: 12 }}>
+              <label style={{ display: "grid", gap: 8 }}>
+                <strong>preset 이름</strong>
+                <input
+                  type="text"
+                  value={presetLabelInput}
+                  onChange={(e) => setPresetLabelInput(e.target.value)}
+                  placeholder="예: 병원 예약 문구"
+                  style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 8 }}>
+                <strong>preset 문구</strong>
+                <textarea
+                  value={presetTextInput}
+                  onChange={(e) => setPresetTextInput(e.target.value)}
+                  rows={3}
+                  placeholder="환자별로 자주 쓰는 문구를 저장하세요"
+                  style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ccc", resize: "vertical" }}
+                />
+              </label>
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button type="button" onClick={handleNewPreset} style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}>
+                  새 preset
+                </button>
+                <button type="button" onClick={handleSavePreset} style={{ padding: "10px 14px", borderRadius: 10, border: "none", background: "#d97706", color: "#fff", cursor: "pointer", fontWeight: 700 }}>
+                  preset 저장
+                </button>
+                <button type="button" onClick={handleDeletePreset} style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #fecaca", background: "#fff1f2", color: "#b91c1c", cursor: "pointer" }}>
+                  선택 preset 삭제
+                </button>
+                <button type="button" onClick={handleResetPresets} style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #e5e7eb", background: "#fff", cursor: "pointer" }}>
+                  preset 기본값 복원
+                </button>
+              </div>
             </div>
           </div>
 
@@ -539,24 +600,12 @@ export default function MetronomeTrainer() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16 }}>
             <label style={{ display: "grid", gap: 8 }}>
               <strong>목표 SPS</strong>
-              <input
-                type="number"
-                min={1}
-                max={8}
-                step={0.1}
-                value={targetSps}
-                onChange={(e) => setTargetSps(Number(e.target.value))}
-                style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
-              />
+              <input type="number" min={1} max={8} step={0.1} value={targetSps} onChange={(e) => setTargetSps(Number(e.target.value))} style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }} />
             </label>
 
             <label style={{ display: "grid", gap: 8 }}>
               <strong>읽기 단위</strong>
-              <select
-                value={chunkMode}
-                onChange={(e) => setChunkMode(e.target.value as ChunkMode)}
-                style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
-              >
+              <select value={chunkMode} onChange={(e) => setChunkMode(e.target.value as ChunkMode)} style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}>
                 <option>1단어씩</option>
                 <option>2단어씩</option>
                 <option>3단어씩</option>
@@ -567,15 +616,7 @@ export default function MetronomeTrainer() {
 
             <label style={{ display: "grid", gap: 8 }}>
               <strong>구 끝 pause(초)</strong>
-              <input
-                type="number"
-                min={0}
-                max={3}
-                step={0.1}
-                value={pauseSec}
-                onChange={(e) => setPauseSec(Number(e.target.value))}
-                style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
-              />
+              <input type="number" min={0} max={3} step={0.1} value={pauseSec} onChange={(e) => setPauseSec(Number(e.target.value))} style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }} />
             </label>
           </div>
         </section>
@@ -618,18 +659,10 @@ export default function MetronomeTrainer() {
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 14, color: "#666" }}>글자 크기: {displayFontSize}</span>
-            <button
-              onClick={decreaseFontSize}
-              type="button"
-              style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #f0cf8b", background: "#fff9ef", cursor: "pointer", fontWeight: 700 }}
-            >
+            <button onClick={decreaseFontSize} type="button" style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #f0cf8b", background: "#fff9ef", cursor: "pointer", fontWeight: 700 }}>
               A-
             </button>
-            <button
-              onClick={increaseFontSize}
-              type="button"
-              style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #f0cf8b", background: "#fff9ef", cursor: "pointer", fontWeight: 700 }}
-            >
+            <button onClick={increaseFontSize} type="button" style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #f0cf8b", background: "#fff9ef", cursor: "pointer", fontWeight: 700 }}>
               A+
             </button>
           </div>
@@ -660,15 +693,7 @@ export default function MetronomeTrainer() {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button
             onClick={isRunning ? stopTrainingManually : startTraining}
-            style={{
-              padding: "12px 18px",
-              borderRadius: 10,
-              border: "none",
-              background: isRunning ? "#ffe3e3" : "#dff7df",
-              color: isRunning ? "#b71c1c" : "#1b5e20",
-              cursor: "pointer",
-              fontWeight: 700,
-            }}
+            style={{ padding: "12px 18px", borderRadius: 10, border: "none", background: isRunning ? "#ffe3e3" : "#dff7df", color: isRunning ? "#b71c1c" : "#1b5e20", cursor: "pointer", fontWeight: 700 }}
           >
             {isRunning ? "정지" : "시작"}
           </button>
