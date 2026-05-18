@@ -13,6 +13,15 @@ import { freqToNoteName, semitonesBetween } from "./pitch/noteUtils";
 const DURATION_OPTIONS = [15, 30, 45, 60] as const;
 type Duration = (typeof DURATION_OPTIONS)[number];
 
+type Preset = { id: string; label: string; lower: number; upper: number };
+
+const PRESETS: Preset[] = [
+  { id: "custom", label: "사용자 정의", lower: 0, upper: 0 },
+  { id: "male", label: "성인 남성 (85–180 Hz)", lower: 85, upper: 180 },
+  { id: "female", label: "성인 여성 (165–255 Hz)", lower: 165, upper: 255 },
+  { id: "child", label: "아동 (250–400 Hz)", lower: 250, upper: 400 },
+];
+
 const F_MIN = 50;
 const F_MAX = 500;
 const CHART_WIDTH = 900;
@@ -54,6 +63,7 @@ export default function PitchMeter() {
   const [upperBound, setUpperBound] = useState(280);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [dragging, setDragging] = useState<null | "low" | "high">(null);
+  const [presetId, setPresetId] = useState("custom");
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -205,31 +215,69 @@ export default function PitchMeter() {
     };
   }, [samples, lowerBound, upperBound]);
 
-  const handleSvgMouseMove = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
+  const updateDragFromClientY = useCallback(
+    (clientY: number) => {
       if (!dragging || !svgRef.current) return;
       const rect = svgRef.current.getBoundingClientRect();
       const scaleY = CHART_HEIGHT / rect.height;
-      const localY = (e.clientY - rect.top) * scaleY;
+      const localY = (clientY - rect.top) * scaleY;
       const freq = Math.max(F_MIN + 1, Math.min(F_MAX - 1, yToFreq(localY)));
       if (dragging === "low") {
-        setLowerBound((prev) =>
-          Math.min(freq, Math.max(F_MIN + 1, upperBound - 5)) === freq
-            ? freq
-            : prev,
-        );
+        setLowerBound(Math.min(freq, upperBound - 5));
       } else {
-        setUpperBound((prev) =>
-          Math.max(freq, Math.min(F_MAX - 1, lowerBound + 5)) === freq
-            ? freq
-            : prev,
-        );
+        setUpperBound(Math.max(freq, lowerBound + 5));
       }
+      setPresetId("custom");
     },
     [dragging, lowerBound, upperBound],
   );
 
-  const handleSvgMouseUp = useCallback(() => setDragging(null), []);
+  const handleSvgMouseMove = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => updateDragFromClientY(e.clientY),
+    [updateDragFromClientY],
+  );
+
+  const handleSvgTouchMove = useCallback(
+    (e: React.TouchEvent<SVGSVGElement>) => {
+      if (!dragging) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      if (touch) updateDragFromClientY(touch.clientY);
+    },
+    [dragging, updateDragFromClientY],
+  );
+
+  const endDrag = useCallback(() => setDragging(null), []);
+
+  const handlePresetChange = useCallback((id: string) => {
+    setPresetId(id);
+    const preset = PRESETS.find((p) => p.id === id);
+    if (preset && id !== "custom") {
+      setLowerBound(preset.lower);
+      setUpperBound(preset.upper);
+    }
+  }, []);
+
+  const exportCSV = useCallback(() => {
+    if (samples.length === 0) return;
+    const lines = ["time_sec,f0_hz,in_target_range"];
+    for (const s of samples) {
+      const inRange = s.f0 >= lowerBound && s.f0 <= upperBound ? 1 : 0;
+      lines.push(`${s.t.toFixed(3)},${s.f0.toFixed(2)},${inRange}`);
+    }
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    a.download = `pitch_${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [samples, lowerBound, upperBound]);
 
   const pathData = useMemo(() => {
     if (samples.length === 0) return "";
@@ -283,6 +331,25 @@ export default function PitchMeter() {
             ))}
           </div>
         </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-slate-700">
+            음역대 프리셋
+          </span>
+          <select
+            value={presetId}
+            onChange={(e) => handlePresetChange(e.target.value)}
+            disabled={isRecording}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 disabled:opacity-50"
+          >
+            {PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div className="ml-auto flex gap-2">
           {!isRecording ? (
             <button
@@ -306,6 +373,13 @@ export default function PitchMeter() {
           >
             초기화
           </button>
+          <button
+            onClick={exportCSV}
+            disabled={isRecording || samples.length === 0}
+            className="rounded-lg border border-slate-300 bg-white px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            CSV 저장
+          </button>
         </div>
       </div>
 
@@ -319,10 +393,13 @@ export default function PitchMeter() {
         <svg
           ref={svgRef}
           viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-          className="w-full select-none"
+          className="w-full touch-none select-none"
           onMouseMove={handleSvgMouseMove}
-          onMouseUp={handleSvgMouseUp}
-          onMouseLeave={handleSvgMouseUp}
+          onMouseUp={endDrag}
+          onMouseLeave={endDrag}
+          onTouchMove={handleSvgTouchMove}
+          onTouchEnd={endDrag}
+          onTouchCancel={endDrag}
         >
           <rect
             x={PADDING.left}
@@ -474,6 +551,10 @@ export default function PitchMeter() {
               e.preventDefault();
               setDragging("high");
             }}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              setDragging("high");
+            }}
           >
             <line
               x1={PADDING.left}
@@ -527,6 +608,10 @@ export default function PitchMeter() {
               e.preventDefault();
               setDragging("low");
             }}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              setDragging("low");
+            }}
           >
             <line
               x1={PADDING.left}
@@ -575,8 +660,8 @@ export default function PitchMeter() {
           </g>
         </svg>
         <p className="mt-2 text-xs text-slate-500">
-          상한·하한 막대를 위/아래로 끌어 목표 음역대를 설정하세요. 녹색 영역이
-          목표 범위이며, 음표명은 평균율 12-TET 기준입니다.
+          상한·하한 막대를 위/아래로 끌어 목표 음역대를 설정하세요 (마우스/터치
+          모두 지원). 녹색 영역이 목표 범위입니다.
         </p>
       </div>
 
