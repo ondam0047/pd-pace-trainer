@@ -13,6 +13,9 @@ import { freqToNoteName, semitonesBetween } from "./pitch/noteUtils";
 const DURATION_OPTIONS = [15, 30, 45, 60] as const;
 type Duration = (typeof DURATION_OPTIONS)[number];
 
+const FFT_SIZES = [2048, 4096] as const;
+type FftSize = (typeof FFT_SIZES)[number];
+
 type Preset = { id: string; label: string; lower: number; upper: number };
 
 const PRESETS: Preset[] = [
@@ -26,7 +29,7 @@ const F_MIN = 50;
 const F_MAX = 500;
 const CHART_WIDTH = 900;
 const CHART_HEIGHT = 380;
-const PADDING = { top: 20, right: 70, bottom: 40, left: 70 };
+const PADDING = { top: 24, right: 80, bottom: 44, left: 80 };
 const GAP_THRESHOLD_SEC = 0.15;
 
 type Sample = { t: number; f0: number };
@@ -55,6 +58,7 @@ function timeToX(t: number, duration: number): number {
 
 export default function PitchMeter() {
   const [duration, setDuration] = useState<Duration>(30);
+  const [fftSize, setFftSize] = useState<FftSize>(2048);
   const [isRecording, setIsRecording] = useState(false);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [currentF0, setCurrentF0] = useState<number | null>(null);
@@ -73,11 +77,15 @@ export default function PitchMeter() {
   const startTimeRef = useRef<number>(0);
   const samplesRef = useRef<Sample[]>([]);
   const durationRef = useRef<Duration>(duration);
+  const fftSizeRef = useRef<FftSize>(fftSize);
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
     durationRef.current = duration;
   }, [duration]);
+  useEffect(() => {
+    fftSizeRef.current = fftSize;
+  }, [fftSize]);
 
   const stop = useCallback(() => {
     if (rafRef.current !== null) {
@@ -150,7 +158,7 @@ export default function PitchMeter() {
       sourceRef.current = source;
 
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 2048;
+      analyser.fftSize = fftSizeRef.current;
       analyser.smoothingTimeConstant = 0;
       analyserRef.current = analyser;
       source.connect(analyser);
@@ -350,6 +358,29 @@ export default function PitchMeter() {
           </select>
         </div>
 
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-slate-700">정밀도</span>
+          <div
+            className="flex overflow-hidden rounded-lg border border-slate-300"
+            title="fftSize: 큰 값일수록 저음역까지 정확하지만 화면 갱신이 느려집니다."
+          >
+            {FFT_SIZES.map((f) => (
+              <button
+                key={f}
+                onClick={() => setFftSize(f)}
+                disabled={isRecording}
+                className={`px-3 py-1.5 text-sm font-medium transition ${
+                  f === fftSize
+                    ? "bg-slate-900 text-white"
+                    : "bg-white text-slate-700 hover:bg-slate-50"
+                } disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                {f === 2048 ? "기본 (~70Hz↑)" : "저음 (~35Hz↑)"}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="ml-auto flex gap-2">
           {!isRecording ? (
             <button
@@ -389,276 +420,282 @@ export default function PitchMeter() {
         </div>
       )}
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <svg
-          ref={svgRef}
-          viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-          className="w-full touch-none select-none"
-          onMouseMove={handleSvgMouseMove}
-          onMouseUp={endDrag}
-          onMouseLeave={endDrag}
-          onTouchMove={handleSvgTouchMove}
-          onTouchEnd={endDrag}
-          onTouchCancel={endDrag}
-        >
-          <rect
-            x={PADDING.left}
-            y={PADDING.top}
-            width={CHART_WIDTH - PADDING.left - PADDING.right}
-            height={CHART_HEIGHT - PADDING.top - PADDING.bottom}
-            fill="#f8fafc"
-          />
-
-          <rect
-            x={PADDING.left}
-            y={upperY}
-            width={CHART_WIDTH - PADDING.left - PADDING.right}
-            height={Math.max(0, lowerY - upperY)}
-            fill={inRangeColor}
-            opacity={0.55}
-          />
-
-          {gridFreqs.map((f) => {
-            const y = freqToY(f);
-            return (
-              <g key={`hf-${f}`}>
-                <line
-                  x1={PADDING.left}
-                  x2={CHART_WIDTH - PADDING.right}
-                  y1={y}
-                  y2={y}
-                  stroke="#e2e8f0"
-                  strokeDasharray="3 3"
-                />
-                <text
-                  x={PADDING.left - 8}
-                  y={y + 4}
-                  textAnchor="end"
-                  fontSize="11"
-                  fill="#64748b"
-                >
-                  {f}
-                </text>
-                <text
-                  x={CHART_WIDTH - PADDING.right + 8}
-                  y={y + 4}
-                  textAnchor="start"
-                  fontSize="10"
-                  fill="#94a3b8"
-                >
-                  {freqToNoteName(f)}
-                </text>
-              </g>
-            );
-          })}
-
-          {gridTimes.map((t) => {
-            const x = timeToX(t, duration);
-            return (
-              <g key={`vt-${t}`}>
-                <line
-                  x1={x}
-                  x2={x}
-                  y1={PADDING.top}
-                  y2={CHART_HEIGHT - PADDING.bottom}
-                  stroke="#e2e8f0"
-                  strokeDasharray="3 3"
-                />
-                <text
-                  x={x}
-                  y={CHART_HEIGHT - PADDING.bottom + 16}
-                  textAnchor="middle"
-                  fontSize="11"
-                  fill="#64748b"
-                >
-                  {t}s
-                </text>
-              </g>
-            );
-          })}
-
-          <line
-            x1={PADDING.left}
-            x2={PADDING.left}
-            y1={PADDING.top}
-            y2={CHART_HEIGHT - PADDING.bottom}
-            stroke="#cbd5e1"
-          />
-          <line
-            x1={PADDING.left}
-            x2={CHART_WIDTH - PADDING.right}
-            y1={CHART_HEIGHT - PADDING.bottom}
-            y2={CHART_HEIGHT - PADDING.bottom}
-            stroke="#cbd5e1"
-          />
-
-          <text
-            x={22}
-            y={CHART_HEIGHT / 2}
-            textAnchor="middle"
-            fontSize="11"
-            fill="#475569"
-            transform={`rotate(-90 22 ${CHART_HEIGHT / 2})`}
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="min-w-[640px]">
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+            className="w-full touch-none select-none"
+            onMouseMove={handleSvgMouseMove}
+            onMouseUp={endDrag}
+            onMouseLeave={endDrag}
+            onTouchMove={handleSvgTouchMove}
+            onTouchEnd={endDrag}
+            onTouchCancel={endDrag}
           >
-            주파수 (Hz)
-          </text>
-          <text
-            x={CHART_WIDTH / 2}
-            y={CHART_HEIGHT - 4}
-            textAnchor="middle"
-            fontSize="11"
-            fill="#475569"
-          >
-            시간 (초)
-          </text>
-
-          {pathData && (
-            <path
-              d={pathData}
-              fill="none"
-              stroke="#2563eb"
-              strokeWidth={2}
-              strokeLinejoin="round"
-              strokeLinecap="round"
+            <rect
+              x={PADDING.left}
+              y={PADDING.top}
+              width={CHART_WIDTH - PADDING.left - PADDING.right}
+              height={CHART_HEIGHT - PADDING.top - PADDING.bottom}
+              fill="#f8fafc"
             />
-          )}
 
-          {isRecording && (
+            <rect
+              x={PADDING.left}
+              y={upperY}
+              width={CHART_WIDTH - PADDING.left - PADDING.right}
+              height={Math.max(0, lowerY - upperY)}
+              fill={inRangeColor}
+              opacity={0.55}
+            />
+
+            {gridFreqs.map((f) => {
+              const y = freqToY(f);
+              return (
+                <g key={`hf-${f}`}>
+                  <line
+                    x1={PADDING.left}
+                    x2={CHART_WIDTH - PADDING.right}
+                    y1={y}
+                    y2={y}
+                    stroke="#e2e8f0"
+                    strokeDasharray="3 3"
+                  />
+                  <text
+                    x={PADDING.left - 10}
+                    y={y + 5}
+                    textAnchor="end"
+                    fontSize={14}
+                    fill="#475569"
+                    fontWeight={500}
+                  >
+                    {f}
+                  </text>
+                  <text
+                    x={CHART_WIDTH - PADDING.right + 10}
+                    y={y + 5}
+                    textAnchor="start"
+                    fontSize={13}
+                    fill="#64748b"
+                  >
+                    {freqToNoteName(f)}
+                  </text>
+                </g>
+              );
+            })}
+
+            {gridTimes.map((t) => {
+              const x = timeToX(t, duration);
+              return (
+                <g key={`vt-${t}`}>
+                  <line
+                    x1={x}
+                    x2={x}
+                    y1={PADDING.top}
+                    y2={CHART_HEIGHT - PADDING.bottom}
+                    stroke="#e2e8f0"
+                    strokeDasharray="3 3"
+                  />
+                  <text
+                    x={x}
+                    y={CHART_HEIGHT - PADDING.bottom + 18}
+                    textAnchor="middle"
+                    fontSize={14}
+                    fill="#475569"
+                    fontWeight={500}
+                  >
+                    {t}s
+                  </text>
+                </g>
+              );
+            })}
+
             <line
-              x1={timeToX(elapsed, duration)}
-              x2={timeToX(elapsed, duration)}
+              x1={PADDING.left}
+              x2={PADDING.left}
               y1={PADDING.top}
               y2={CHART_HEIGHT - PADDING.bottom}
-              stroke="#94a3b8"
-              strokeWidth={1}
+              stroke="#cbd5e1"
             />
-          )}
-
-          {currentF0 !== null && isRecording && (
-            <circle
-              cx={timeToX(elapsed, duration)}
-              cy={freqToY(currentF0)}
-              r={5}
-              fill="#2563eb"
-              stroke="white"
-              strokeWidth={2}
-            />
-          )}
-
-          <g
-            style={{ cursor: "ns-resize" }}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              setDragging("high");
-            }}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              setDragging("high");
-            }}
-          >
             <line
               x1={PADDING.left}
               x2={CHART_WIDTH - PADDING.right}
-              y1={upperY}
-              y2={upperY}
-              stroke="#dc2626"
-              strokeWidth={2}
+              y1={CHART_HEIGHT - PADDING.bottom}
+              y2={CHART_HEIGHT - PADDING.bottom}
+              stroke="#cbd5e1"
             />
-            <rect
-              x={PADDING.left - 56}
-              y={upperY - 11}
-              width={50}
-              height={22}
-              fill="#dc2626"
-              rx={4}
-            />
-            <text
-              x={PADDING.left - 31}
-              y={upperY + 4}
-              textAnchor="middle"
-              fontSize="11"
-              fill="white"
-              fontWeight={600}
-            >
-              상한
-            </text>
-            <rect
-              x={CHART_WIDTH - PADDING.right + 4}
-              y={upperY - 11}
-              width={58}
-              height={22}
-              fill="#dc2626"
-              rx={4}
-            />
-            <text
-              x={CHART_WIDTH - PADDING.right + 33}
-              y={upperY + 4}
-              textAnchor="middle"
-              fontSize="11"
-              fill="white"
-              fontWeight={600}
-            >
-              {upperBound.toFixed(0)} Hz
-            </text>
-          </g>
 
-          <g
-            style={{ cursor: "ns-resize" }}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              setDragging("low");
-            }}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              setDragging("low");
-            }}
-          >
-            <line
-              x1={PADDING.left}
-              x2={CHART_WIDTH - PADDING.right}
-              y1={lowerY}
-              y2={lowerY}
-              stroke="#059669"
-              strokeWidth={2}
-            />
-            <rect
-              x={PADDING.left - 56}
-              y={lowerY - 11}
-              width={50}
-              height={22}
-              fill="#059669"
-              rx={4}
-            />
             <text
-              x={PADDING.left - 31}
-              y={lowerY + 4}
+              x={24}
+              y={CHART_HEIGHT / 2}
               textAnchor="middle"
-              fontSize="11"
-              fill="white"
-              fontWeight={600}
+              fontSize={14}
+              fill="#334155"
+              fontWeight={500}
+              transform={`rotate(-90 24 ${CHART_HEIGHT / 2})`}
             >
-              하한
+              주파수 (Hz)
             </text>
-            <rect
-              x={CHART_WIDTH - PADDING.right + 4}
-              y={lowerY - 11}
-              width={58}
-              height={22}
-              fill="#059669"
-              rx={4}
-            />
             <text
-              x={CHART_WIDTH - PADDING.right + 33}
-              y={lowerY + 4}
+              x={CHART_WIDTH / 2}
+              y={CHART_HEIGHT - 6}
               textAnchor="middle"
-              fontSize="11"
-              fill="white"
-              fontWeight={600}
+              fontSize={14}
+              fill="#334155"
+              fontWeight={500}
             >
-              {lowerBound.toFixed(0)} Hz
+              시간 (초)
             </text>
-          </g>
-        </svg>
+
+            {pathData && (
+              <path
+                d={pathData}
+                fill="none"
+                stroke="#2563eb"
+                strokeWidth={2.5}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            )}
+
+            {isRecording && (
+              <line
+                x1={timeToX(elapsed, duration)}
+                x2={timeToX(elapsed, duration)}
+                y1={PADDING.top}
+                y2={CHART_HEIGHT - PADDING.bottom}
+                stroke="#94a3b8"
+                strokeWidth={1}
+              />
+            )}
+
+            {currentF0 !== null && isRecording && (
+              <circle
+                cx={timeToX(elapsed, duration)}
+                cy={freqToY(currentF0)}
+                r={6}
+                fill="#2563eb"
+                stroke="white"
+                strokeWidth={2}
+              />
+            )}
+
+            <g
+              style={{ cursor: "ns-resize" }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setDragging("high");
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                setDragging("high");
+              }}
+            >
+              <line
+                x1={PADDING.left}
+                x2={CHART_WIDTH - PADDING.right}
+                y1={upperY}
+                y2={upperY}
+                stroke="#dc2626"
+                strokeWidth={2.5}
+              />
+              <rect
+                x={PADDING.left - 64}
+                y={upperY - 13}
+                width={56}
+                height={26}
+                fill="#dc2626"
+                rx={5}
+              />
+              <text
+                x={PADDING.left - 36}
+                y={upperY + 5}
+                textAnchor="middle"
+                fontSize={13}
+                fill="white"
+                fontWeight={700}
+              >
+                상한
+              </text>
+              <rect
+                x={CHART_WIDTH - PADDING.right + 6}
+                y={upperY - 13}
+                width={68}
+                height={26}
+                fill="#dc2626"
+                rx={5}
+              />
+              <text
+                x={CHART_WIDTH - PADDING.right + 40}
+                y={upperY + 5}
+                textAnchor="middle"
+                fontSize={13}
+                fill="white"
+                fontWeight={700}
+              >
+                {upperBound.toFixed(0)} Hz
+              </text>
+            </g>
+
+            <g
+              style={{ cursor: "ns-resize" }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setDragging("low");
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                setDragging("low");
+              }}
+            >
+              <line
+                x1={PADDING.left}
+                x2={CHART_WIDTH - PADDING.right}
+                y1={lowerY}
+                y2={lowerY}
+                stroke="#059669"
+                strokeWidth={2.5}
+              />
+              <rect
+                x={PADDING.left - 64}
+                y={lowerY - 13}
+                width={56}
+                height={26}
+                fill="#059669"
+                rx={5}
+              />
+              <text
+                x={PADDING.left - 36}
+                y={lowerY + 5}
+                textAnchor="middle"
+                fontSize={13}
+                fill="white"
+                fontWeight={700}
+              >
+                하한
+              </text>
+              <rect
+                x={CHART_WIDTH - PADDING.right + 6}
+                y={lowerY - 13}
+                width={68}
+                height={26}
+                fill="#059669"
+                rx={5}
+              />
+              <text
+                x={CHART_WIDTH - PADDING.right + 40}
+                y={lowerY + 5}
+                textAnchor="middle"
+                fontSize={13}
+                fill="white"
+                fontWeight={700}
+              >
+                {lowerBound.toFixed(0)} Hz
+              </text>
+            </g>
+          </svg>
+        </div>
         <p className="mt-2 text-xs text-slate-500">
           상한·하한 막대를 위/아래로 끌어 목표 음역대를 설정하세요 (마우스/터치
           모두 지원). 녹색 영역이 목표 범위입니다.

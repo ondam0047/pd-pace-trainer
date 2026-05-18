@@ -1,5 +1,5 @@
 import Link from "next/link";
-import VocalTractVisualizer from "@/components/VocalTractVisualizer";
+import VocalTractMode from "@/components/VocalTractMode";
 
 export default function VocalTractPage() {
   return (
@@ -14,12 +14,12 @@ export default function VocalTractPage() {
           </Link>
           <h1 className="mt-3 text-3xl font-bold text-slate-900">성도 시각화</h1>
           <p className="mt-2 max-w-3xl text-slate-600">
-            모음 발성 시 추출되는 포먼트(F1·F2·F3)로부터 혀와 성도의 위치를
-            추정해 실시간으로 표시합니다. 먼저 참조 화자(남성·여성)을 선택한 뒤
-            단모음 8개(ㅣㅔㅐㅏㅓㅗㅜㅡ)를 길게 발성해 보세요.
+            세 가지 모드로 운영됩니다: (1) 모음 분석 — 실시간 F1/F2로 한국어
+            단모음 8개 위치 표시, (2) 자음 학습 — 버튼으로 각 자음의 조음
+            위치 시각화, (3) 마찰음 훈련 — /s/·/ʃ/ 스펙트럼 중심 변별.
           </p>
         </div>
-        <VocalTractVisualizer />
+        <VocalTractMode />
       </div>
     </main>
   );

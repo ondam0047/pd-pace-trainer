@@ -14,7 +14,7 @@ const F1_MAX = 1000;
 const F2_MIN = 600;
 const F2_MAX = 3000;
 
-const PAD = { top: 24, right: 24, bottom: 40, left: 50 };
+const PAD = { top: 30, right: 30, bottom: 50, left: 60 };
 const W = 440;
 const H = 360;
 
@@ -76,9 +76,9 @@ export default function VowelChart({ f1, f2, gender }: Props) {
             />
             <text
               x={x}
-              y={H - PAD.bottom + 14}
-              fontSize={10}
-              fill="#64748b"
+              y={H - PAD.bottom + 16}
+              fontSize={12}
+              fill="#475569"
               textAnchor="middle"
             >
               {f}
@@ -99,10 +99,10 @@ export default function VowelChart({ f1, f2, gender }: Props) {
               strokeDasharray="2 3"
             />
             <text
-              x={PAD.left - 6}
-              y={y + 4}
-              fontSize={10}
-              fill="#64748b"
+              x={PAD.left - 8}
+              y={y + 5}
+              fontSize={12}
+              fill="#475569"
               textAnchor="end"
             >
               {f}
@@ -113,20 +113,22 @@ export default function VowelChart({ f1, f2, gender }: Props) {
 
       <text
         x={W / 2}
-        y={H - 4}
+        y={H - 8}
         textAnchor="middle"
-        fontSize={11}
-        fill="#475569"
+        fontSize={13}
+        fill="#334155"
+        fontWeight={500}
       >
         F2 (Hz) — ← 전설   후설 →
       </text>
       <text
-        x={14}
+        x={16}
         y={H / 2}
         textAnchor="middle"
-        fontSize={11}
-        fill="#475569"
-        transform={`rotate(-90 14 ${H / 2})`}
+        fontSize={13}
+        fill="#334155"
+        fontWeight={500}
+        transform={`rotate(-90 16 ${H / 2})`}
       >
         F1 (Hz) — 고모음 ↑   저모음 ↓
       </text>
@@ -136,7 +138,7 @@ export default function VowelChart({ f1, f2, gender }: Props) {
           <circle
             cx={t.x}
             cy={t.y}
-            r={15}
+            r={17}
             fill="#bfdbfe"
             stroke="#3b82f6"
             strokeWidth={1.5}
@@ -144,9 +146,9 @@ export default function VowelChart({ f1, f2, gender }: Props) {
           />
           <text
             x={t.x}
-            y={t.y + 5}
+            y={t.y + 6}
             textAnchor="middle"
-            fontSize={14}
+            fontSize={17}
             fill="#1e40af"
             fontWeight={700}
           >
@@ -160,18 +162,18 @@ export default function VowelChart({ f1, f2, gender }: Props) {
           <circle
             cx={currentPos.x}
             cy={currentPos.y}
-            r={9}
+            r={10}
             fill="#dc2626"
             stroke="white"
-            strokeWidth={2}
+            strokeWidth={2.5}
           />
           <text
             x={currentPos.x}
-            y={currentPos.y - 14}
+            y={currentPos.y - 16}
             textAnchor="middle"
-            fontSize={10}
+            fontSize={12}
             fill="#7f1d1d"
-            fontWeight={600}
+            fontWeight={700}
           >
             현재
           </text>

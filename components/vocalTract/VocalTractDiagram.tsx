@@ -31,7 +31,7 @@ export default function VocalTractDiagram({ f1, f2 }: Props) {
   return (
     <svg viewBox="0 0 400 400" className="w-full">
       <defs>
-        <linearGradient id="skin" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id="vt-skin" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#fde7d3" />
           <stop offset="100%" stopColor="#f3c89f" />
         </linearGradient>
@@ -39,7 +39,7 @@ export default function VocalTractDiagram({ f1, f2 }: Props) {
 
       <path
         d="M 360 110 Q 360 60 300 50 Q 200 40 130 80 Q 80 110 80 180 L 80 280 Q 80 340 120 360 Q 180 380 240 370 Q 290 360 310 340 L 330 320 L 360 310 Z"
-        fill="url(#skin)"
+        fill="url(#vt-skin)"
         stroke="#b78250"
         strokeWidth={2}
       />
@@ -88,7 +88,7 @@ export default function VocalTractDiagram({ f1, f2 }: Props) {
         stroke="#b78250"
         strokeWidth={1.5}
       />
-      <text x={180} y={362} textAnchor="middle" fontSize={9} fill="#8b5a2b">
+      <text x={180} y={362} textAnchor="middle" fontSize={11} fill="#8b5a2b">
         후두
       </text>
 
@@ -104,11 +104,11 @@ export default function VocalTractDiagram({ f1, f2 }: Props) {
           <text
             x={tongue.x + 8}
             y={tongue.y - 6}
-            fontSize={10}
+            fontSize={12}
             fill="#7a3030"
             fontWeight={600}
           >
-            혀 정점
+            혁 정점
           </text>
         </g>
       ) : (
@@ -122,7 +122,7 @@ export default function VocalTractDiagram({ f1, f2 }: Props) {
             x={265}
             y={312}
             textAnchor="middle"
-            fontSize={11}
+            fontSize={13}
             fill="#7a3030"
           >
             발성 대기
@@ -130,16 +130,16 @@ export default function VocalTractDiagram({ f1, f2 }: Props) {
         </g>
       )}
 
-      <text x={290} y={158} fontSize={10} fill="#6b4226">
+      <text x={290} y={158} fontSize={12} fill="#6b4226" fontWeight={500}>
         경구개
       </text>
-      <text x={195} y={158} fontSize={10} fill="#6b4226">
+      <text x={195} y={158} fontSize={12} fill="#6b4226" fontWeight={500}>
         연구개
       </text>
-      <text x={360} y={225} fontSize={10} fill="#6b4226">
+      <text x={360} y={222} fontSize={12} fill="#6b4226" fontWeight={500}>
         입술
       </text>
-      <text x={170} y={250} fontSize={10} textAnchor="end" fill="#6b4226">
+      <text x={170} y={250} fontSize={12} fill="#6b4226" textAnchor="end" fontWeight={500}>
         인두
       </text>
     </svg>
