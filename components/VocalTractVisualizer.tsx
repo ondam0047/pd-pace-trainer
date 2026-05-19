@@ -9,7 +9,7 @@ import { estimateFormants } from "./vocalTract/formants";
 import {
   KOREAN_VOWELS,
   findClosestVowel,
-  type VowelGender,
+  type VowelReference,
 } from "./vocalTract/koreanVowels";
 import {
   clearCalibration,
@@ -22,31 +22,39 @@ import {
 
 const EMA_ALPHA = 0.6;
 
-// F1/F2 → SVG 혁 좌표 매핑 (AnatomicalDiagram 480×480 기준)
+// F1/F2 → SVG 혁 좌표 매핑 (AnatomicalDiagram 새 viewBox 580×720)
+// 학령전기까지 대응하도록 범위 확장
 function formantsToArticulation(
   f1: number | null,
   f2: number | null,
 ): ArticulationState | undefined {
   if (f1 === null || f2 === null) return undefined;
-  // F1 250→230 (고모음, 혁 위), 900→300 (저모음, 혁 아래)
-  const f1Norm = Math.max(0, Math.min(1, (f1 - 250) / (900 - 250)));
-  const bodyY = 230 + f1Norm * 70;
-  // F2 700→290 (후설), 2700→360 (전설)
-  const f2Norm = Math.max(0, Math.min(1, (f2 - 700) / (2700 - 700)));
-  const bodyX = 290 + f2Norm * 70;
-  const tipX = bodyX + 35;
-  const tipY = bodyY + 8;
+  // F1 250 → 320 (고모음, 혁 위), F1 1100 → 400 (저모음, 혁 아래)
+  const f1Norm = Math.max(0, Math.min(1, (f1 - 250) / (1100 - 250)));
+  const bodyY = 320 + f1Norm * 80;
+  // F2 700 → 290 (후설), F2 2800 → 440 (전설), F2 3300 초과 → 소폭 확장
+  const f2Norm = Math.max(0, Math.min(1.1, (f2 - 700) / (2800 - 700)));
+  const bodyX = 290 + f2Norm * 150;
+  const tipX = bodyX + 60;
+  const tipY = bodyY + 5;
   return {
     tongueBody: { x: bodyX, y: bodyY },
     tongueTip: { x: tipX, y: tipY },
     velumOpen: false,
     lipClosure: false,
+    airflow: "none",
   };
 }
 
+const REFERENCE_OPTIONS: { id: VowelReference; label: string }[] = [
+  { id: "male", label: "성인 남성" },
+  { id: "female", label: "성인 여성" },
+  { id: "preschool", label: "학령전기" },
+];
+
 export default function VocalTractVisualizer() {
   const [isRecording, setIsRecording] = useState(false);
-  const [gender, setGender] = useState<VowelGender>("female");
+  const [reference, setReference] = useState<VowelReference>("female");
   const [f1, setF1] = useState<number | null>(null);
   const [f2, setF2] = useState<number | null>(null);
   const [f3, setF3] = useState<number | null>(null);
@@ -157,8 +165,8 @@ export default function VocalTractVisualizer() {
   useEffect(() => () => stop(), [stop]);
 
   const targets = useMemo(
-    () => getTargets(calibration, gender),
-    [calibration, gender],
+    () => getTargets(calibration, reference),
+    [calibration, reference],
   );
   const calibratedSet = useMemo(
     () => new Set(Object.keys(calibration)),
@@ -167,8 +175,8 @@ export default function VocalTractVisualizer() {
 
   const closest = useMemo(() => {
     if (f1 === null || f2 === null) return null;
-    return findClosestVowel(f1, f2, gender);
-  }, [f1, f2, gender]);
+    return findClosestVowel(f1, f2, reference);
+  }, [f1, f2, reference]);
 
   const articulation = useMemo(
     () => formantsToArticulation(f1, f2),
@@ -200,21 +208,19 @@ export default function VocalTractVisualizer() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-slate-700">
-            표준 참조
-          </span>
+          <span className="text-sm font-medium text-slate-700">표준 참조</span>
           <div className="flex overflow-hidden rounded-lg border border-slate-300">
-            {(["male", "female"] as VowelGender[]).map((g) => (
+            {REFERENCE_OPTIONS.map((opt) => (
               <button
-                key={g}
-                onClick={() => setGender(g)}
+                key={opt.id}
+                onClick={() => setReference(opt.id)}
                 className={`px-3 py-1.5 text-sm font-medium transition ${
-                  g === gender
+                  opt.id === reference
                     ? "bg-slate-900 text-white"
                     : "bg-white text-slate-700 hover:bg-slate-50"
                 }`}
               >
-                {g === "male" ? "성인 남성" : "성인 여성"}
+                {opt.label}
               </button>
             ))}
           </div>
@@ -257,7 +263,7 @@ export default function VocalTractVisualizer() {
           <h3 className="mb-2 text-sm font-semibold text-slate-700">
             측면 성도 단면도
           </h3>
-          <div className="min-w-[400px]">
+          <div className="min-w-[440px]">
             <AnatomicalDiagram
               state={articulation}
               showLabels={showLabels}
@@ -309,13 +315,10 @@ export default function VocalTractVisualizer() {
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-slate-700">
-              개인 캐리브레이션
-            </h3>
+            <h3 className="text-sm font-semibold text-slate-700">개인 캐리브레이션</h3>
             <p className="mt-1 text-xs text-slate-500">
               대상자가 해당 모음을 지속하는 동안 버튼을 눌러 지금의 F1·F2를 저장합니다.
-              저장된 값은 차트의 녹색 원으로 표시되며 다음 회기부터 개인
-              기준으로 사용됩니다 (브라우저 로컬 저장).
+              저장된 값은 녹색 원으로 표시되며 다음 회기부터 개인 기준으로 사용됩니다.
             </p>
           </div>
           <button
@@ -375,18 +378,17 @@ export default function VocalTractVisualizer() {
         <div className="mt-3 space-y-2 text-xs text-slate-600">
           <p>
             <strong>포먼트 추정:</strong> pre-emphasis(α=0.97) → Hamming 윈도우
-            → 자기상관 LPC(order 12) + Levinson-Durbin → LPC 스펙트럼 → 주파수
-            대역별 피크 선택 (F1∈200–1000, F2∈700–3000, F3∈
-            2000–4500).
+            → 자기상관 LPC(order 18) + Levinson-Durbin → 각 대역 최강 피크
+            (F1∈200–1100, F2∈700–3300, F3∈ 2000–4500) 선택.
           </p>
           <p>
-            <strong>표준 F1/F2:</strong> 이호영(1996), 신지영(2014), 박한상(2003)
-            의 평균값 — 화자별 ±15% 변동. 임상 적용 시 개인 캐리브레이션 권장.
+            <strong>표준 F1/F2:</strong> 성인—이호영(1996), 신지영(2014),
+            박한상(2003) / 학령전기—이재선·박지원(2010),
+            김미진·이혜은(2014). 화자별 ±15% 변동 → 개인 캐리브레이션 권장.
           </p>
           <p>
-            <strong>캐리브레이션:</strong> 대상자 별로 다르며 성도의 절대 길이·
-            구조에 따라 같은 모음이어도 F1/F2가 크게 달라집니다. 머신러닝 없이
-              "표준" 참조만 쓰는 것은 임상적으로 아이디어 하단이므로 각 회기
+            <strong>캐리브레이션:</strong> 성도의 절대 길이·구조가 달라 같은 모음이어도
+            F1/F2 가 크게 달라집니다. 머신러닝 없이 임상 적용을 위해 각 회기
             시작 시 주요 모음을 캡처하는 것을 표준 절차로 삼으세요.
           </p>
         </div>
