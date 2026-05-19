@@ -9,7 +9,7 @@ import AnatomicalDiagram, {
 // 스펙트럼 중심 구간·조음 정보
 // 근거: Jongman/Wayland/Wong (2000) JASA, Shadle (1991), Kong & Edwards (2016),
 //        Park (2008) Korean fricatives, 이호영(1996)
-type TargetId = "sh" | "palatalized" | "s" | "ss";
+type TargetId = "sh" | "palatalized" | "s";
 
 type TargetInfo = {
   id: TargetId;
@@ -34,12 +34,12 @@ const TARGETS: Record<TargetId, TargetInfo> = {
     max: 4500,
     color: "#f59e0b",
     articulation: {
-      tongueTip: { x: 360, y: 260 },
-      tongueBody: { x: 340, y: 240 },
+      tongueTip: { x: 460, y: 365 },
+      tongueBody: { x: 410, y: 340 },
       velumOpen: false,
       lipClosure: false,
       lipRounding: 0.5,
-      highlight: { x: 343, y: 240, label: "혁을 너무 뒤로", color: "#f97316" },
+      highlight: { x: 415, y: 338, label: "혁을 너무 뒤로", color: "#f97316" },
     },
     description: "한국어에는 없는 음소. 아동이 ㅅ을 경구개에 접근시켜 자주 왜곡.",
     tip: "혁을 더 앞(치조)으로 옮기고 입술 둘굈 해제. /s/ 쪽으로 이동 유도.",
@@ -53,14 +53,14 @@ const TARGETS: Record<TargetId, TargetInfo> = {
     max: 5500,
     color: "#a855f7",
     articulation: {
-      tongueTip: { x: 365, y: 255 },
-      tongueBody: { x: 338, y: 245 },
+      tongueTip: { x: 465, y: 360 },
+      tongueBody: { x: 408, y: 345 },
       velumOpen: false,
       lipClosure: false,
-      highlight: { x: 343, y: 245, label: "i/y 앞 자연 변이", color: "#a855f7" },
+      highlight: { x: 415, y: 345, label: "i/y 앞 자연 변이", color: "#a855f7" },
     },
     description: "ㅅ + ㅣ/ㅑ/ㅕ·ㅠ 조합에서 자연스러운 구개음화 변이. 잍소리·쉬각에서 대표적.",
-    tip: "모음이 i/y 계열일 때만 조음 오류는 아님. /ㅣ/, /ㅑ/ 이외 모음 앞에서는 /s/ 영역으로 가야 함.",
+    tip: "모음이 i/y 계열일 때만 조음 오류는 아님. 그 외 모음 앞에서는 /s/ 영역으로.",
   },
   s: {
     id: "s",
@@ -71,32 +71,14 @@ const TARGETS: Record<TargetId, TargetInfo> = {
     max: 8500,
     color: "#10b981",
     articulation: {
-      tongueTip: { x: 370, y: 252 },
-      tongueBody: { x: 335, y: 268 },
+      tongueTip: { x: 470, y: 357 },
+      tongueBody: { x: 405, y: 365 },
       velumOpen: false,
       lipClosure: false,
-      highlight: { x: 372, y: 250, label: "좋은 통로", color: "#34d399" },
+      highlight: { x: 472, y: 355, label: "좋은 통로", color: "#34d399" },
     },
     description: "평음 치조마찰음. 아동 조음 장애의 가장 흔한 목표 음소.",
-    tip: "혁끓을 윗잊못 알에, 혁 양쪽은 윗어금니에 접접. 입술은 악간 옆으로 펼치면 centroid 더 높아짐.",
-  },
-  ss: {
-    id: "ss",
-    label: "경음 /s͈/",
-    hangul: "ㅆ",
-    ipa: "s͈",
-    min: 5500,
-    max: 9000,
-    color: "#0d9488",
-    articulation: {
-      tongueTip: { x: 370, y: 252 },
-      tongueBody: { x: 335, y: 268 },
-      velumOpen: false,
-      lipClosure: false,
-      highlight: { x: 372, y: 250, label: "긴장·알력 강", color: "#0d9488" },
-    },
-    description: "ㅅ의 경음. centroid 분포는 ㅅ과 유사하지만 지속시간·술단 계곡이 더 김.",
-    tip: "centroid로 ㅅ·ㅆ 구별은 제한적. 구별은 지속시간(>120ms)·계곡(VOT)·강도로.",
+    tip: "혁끓을 윗잊못 알에, 혁 양쪽은 윗어금니에 접접. 입술을 옆으로 펼치면 centroid 더 높아짐.",
   },
 };
 
@@ -197,7 +179,6 @@ export default function SibilantTrainer() {
       else if (sm >= TARGETS.sh.min && sm <= TARGETS.sh.max) s.inSh += 1;
       else if (sm >= TARGETS.palatalized.min && sm <= TARGETS.palatalized.max)
         s.inPal += 1;
-      // histogram
       if (sm >= HIST_MIN && sm < HIST_MAX) {
         const idx = Math.floor((sm - HIST_MIN) / HIST_BUCKET_WIDTH);
         s.histogram[idx] += 1;
@@ -281,11 +262,11 @@ export default function SibilantTrainer() {
   const feedback = useMemo(() => {
     if (!isFricative || centroid === null) {
       return {
-        msg: "마찰음을 길게 내세요 (예: 쓬……)",
+        msg: "마찰음을 길게 내세요 (예: /s/)",
         color: "slate" as const,
       };
     }
-    if (currentZone === targetId || (targetId === "ss" && currentZone === "s")) {
+    if (currentZone === targetId) {
       return {
         msg: `✨ 좋아요! ${target.label} 구간입니다`,
         color: "emerald" as const,
@@ -303,7 +284,6 @@ export default function SibilantTrainer() {
     };
   }, [isFricative, centroid, currentZone, targetId, target]);
 
-  // Gauge geometry
   const W = 760;
   const H = 220;
   const PADL = 40;
@@ -321,7 +301,6 @@ export default function SibilantTrainer() {
   const meanX =
     stats.samples > 5 ? freqToX(meanCentroid, W, PADL, PADR) : null;
 
-  // Histogram geometry
   const histMax = Math.max(1, ...stats.histogram);
 
   return (
@@ -395,7 +374,6 @@ export default function SibilantTrainer() {
 
       <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
         <div className="space-y-4">
-          {/* Gauge + histogram */}
           <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="min-w-[560px]">
               <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
@@ -434,7 +412,6 @@ export default function SibilantTrainer() {
                   );
                 })}
 
-                {/* axis ticks */}
                 {[2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000].map((f) => {
                   const x = freqToX(f, W, PADL, PADR);
                   return (
@@ -469,11 +446,14 @@ export default function SibilantTrainer() {
                   스펙트럼 중심 (Hz)
                 </text>
 
-                {/* histogram bars (하단) */}
                 {stats.histogram.map((count, i) => {
                   if (count === 0) return null;
-                  const x =
-                    freqToX(HIST_MIN + i * HIST_BUCKET_WIDTH, W, PADL, PADR);
+                  const x = freqToX(
+                    HIST_MIN + i * HIST_BUCKET_WIDTH,
+                    W,
+                    PADL,
+                    PADR,
+                  );
                   const xNext = freqToX(
                     HIST_MIN + (i + 1) * HIST_BUCKET_WIDTH,
                     W,
@@ -577,7 +557,7 @@ export default function SibilantTrainer() {
             {feedback.msg}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-3">
             <Box
               label="현재 중심"
               value={
@@ -595,25 +575,16 @@ export default function SibilantTrainer() {
               }
             />
             <Box
-              label="/s/ 체류"
+              label="목표 구간 체류"
               value={
                 stats.samples > 0
-                  ? `${((stats.inS / stats.samples) * 100).toFixed(1)} %`
-                  : "-"
-              }
-            />
-            <Box
-              label="/ʃ/ 체류"
-              value={
-                stats.samples > 0
-                  ? `${((stats.inSh / stats.samples) * 100).toFixed(1)} %`
+                  ? `${(((targetId === "s" ? stats.inS : targetId === "sh" ? stats.inSh : stats.inPal) / stats.samples) * 100).toFixed(1)} %`
                   : "-"
               }
             />
           </div>
         </div>
 
-        {/* Anatomical reference for selected target */}
         <div className="space-y-3">
           <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h4 className="text-sm font-semibold text-slate-700">
