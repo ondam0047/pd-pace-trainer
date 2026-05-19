@@ -9,6 +9,7 @@ import {
 } from "react";
 import { yinPitch } from "./pitch/yin";
 import { freqToNoteName, semitonesBetween } from "./pitch/noteUtils";
+import SaveToHistory from "./SaveToHistory";
 
 const DURATION_OPTIONS = [15, 30, 45, 60] as const;
 type Duration = (typeof DURATION_OPTIONS)[number];
@@ -739,6 +740,22 @@ export default function PitchMeter() {
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
           녹음 중 · 경과 {elapsed.toFixed(1)} / {duration}초
         </div>
+      )}
+
+      {!isRecording && stats.total > 0 && (
+        <SaveToHistory
+          moduleId="pitch"
+          summary={{
+            "평균F0(Hz)": +stats.mean.toFixed(1),
+            "최소F0(Hz)": +stats.min.toFixed(1),
+            "최대F0(Hz)": +stats.max.toFixed(1),
+            "음역(semitone)": +stats.rangeSemitones.toFixed(1),
+            "목표체류(%)": +stats.inRangePct.toFixed(1),
+            "목표하한": lowerBound,
+            "목표상한": upperBound,
+            "녹음시간(초)": duration,
+          }}
+        />
       )}
     </div>
   );
