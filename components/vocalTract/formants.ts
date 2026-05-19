@@ -26,9 +26,8 @@ function findAllPeaks(
   return peaks;
 }
 
-// 각 대역에서 가장 강한 피크를 선택 — 이전 "첫 피크" 방식은
-// 잡음 피크가 F2 자리를 차지하면 진짜 F2가 F3 슬롯으로 넘어가는 문제가 있었음.
-// /이/에서 F3만 움직이는 현상의 근본 원인.
+// 각 대역에서 가장 강한 피크를 선택 — "첫 피크" 방식에서
+// 잡음 피크가 F2 자리를 대신 차지하지 않도록 함.
 function pickFormants(
   peaks: { f: number; mag: number }[],
 ): FormantEstimate {
@@ -41,22 +40,22 @@ function pickFormants(
       (p) =>
         p.f >= low &&
         p.f <= high &&
-        (minSepFrom === null || p.f > minSepFrom + 250),
+        (minSepFrom === null || p.f > minSepFrom + 200),
     );
     if (candidates.length === 0) return null;
     return candidates.reduce((max, p) => (p.mag > max.mag ? p : max));
   };
 
-  // F1: 200–1100 Hz (학령전기 아동의 ㅏ ≈ 1050 포함)
-  const f1Peak = strongestIn(200, 1100, null);
+  // F1: 150–1200 Hz (아동 저모음 다소 높은 F1, 성인 남성 /i/ 의 매우 낮은 F1 모두 컴버)
+  const f1Peak = strongestIn(150, 1200, null);
   const f1 = f1Peak ? f1Peak.f : null;
 
-  // F2: 700–3300 Hz (아동 ㅣ ≈ 3000–3300 포함)
-  const f2Peak = strongestIn(700, 3300, f1);
+  // F2: 700–3400 Hz (아동 ㅣ ≈ 3000–3300 포함)
+  const f2Peak = strongestIn(700, 3400, f1);
   const f2 = f2Peak ? f2Peak.f : null;
 
-  // F3: 2000–4500 Hz
-  const f3Peak = strongestIn(2000, 4500, f2);
+  // F3: 2000–4800 Hz
+  const f3Peak = strongestIn(2000, 4800, f2);
   const f3 = f3Peak ? f3Peak.f : null;
 
   return { f1, f2, f3 };
@@ -75,10 +74,8 @@ export function estimateFormants(
   const rms = Math.sqrt(sumSq / buffer.length);
   if (rms < rmsThreshold) return SILENT;
 
-  // LPC 차수: 전체 대역(0–22kHz)을 충분히 모델하도록 18 사용.
-  // 이보다 낮으면(12) 아동 음성에서 F2 피크 구분이 흐릿해지고,
-  // 더 높으면(>24) spurious peak이 늘어나서 잘못 골리기 쉬움.
-  const order = options?.order ?? 18;
+  // LPC 차수: 16. 이보다 높으면(>20) spurious peak, 낮으면(<14) F1·F2 분리 어려움.
+  const order = options?.order ?? 16;
 
   const pre = preemphasize(buffer);
   const win = hammingWindow(pre);
