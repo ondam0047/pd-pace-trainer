@@ -1,11 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   analyzeSpeechRate,
   type SpeechRateResult,
 } from "@/components/speechRate/analyzer";
+import { useKoreanASR } from "@/components/asr/useKoreanASR";
+import {
+  countSyllables,
+  normalizeTranscript,
+} from "@/components/asr/syllableCount";
 
 type Phase = "idle" | "recording" | "done";
 const DURATION_OPTIONS = [10, 15, 30, 60] as const;
@@ -18,6 +23,10 @@ export default function SpeechRatePage() {
   const [result, setResult] = useState<SpeechRateResult | null>(null);
   const [syllables, setSyllables] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [editedTranscript, setEditedTranscript] = useState<string>("");
+  const [autoFilled, setAutoFilled] = useState(false);
+
+  const asr = useKoreanASR();
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -65,15 +74,20 @@ export default function SpeechRatePage() {
     const res = analyzeSpeechRate(combined, sr);
     setResult(res);
     setPhase("done");
+    asr.stop();
     cleanup();
-  }, [cleanup]);
+  }, [cleanup, asr]);
 
   const start = useCallback(async () => {
     setErrorMsg(null);
     setElapsed(0);
     setResult(null);
+    setEditedTranscript("");
+    setAutoFilled(false);
+    setSyllables("");
     setPhase("recording");
     recordedRef.current = [];
+    if (asr.supported) asr.start();
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -118,9 +132,10 @@ export default function SpeechRatePage() {
       console.error(err);
       setErrorMsg("마이크 접근 실패");
       setPhase("idle");
+      asr.stop();
       cleanup();
     }
-  }, [maxDuration, finalizeAndAnalyze, cleanup]);
+  }, [maxDuration, finalizeAndAnalyze, cleanup, asr]);
 
   const stopEarly = useCallback(() => {
     if (rafRef.current !== null) {
@@ -133,9 +148,27 @@ export default function SpeechRatePage() {
   const reset = useCallback(() => {
     setResult(null);
     setSyllables("");
+    setEditedTranscript("");
+    setAutoFilled(false);
     setPhase("idle");
     setElapsed(0);
-  }, []);
+    asr.reset();
+  }, [asr]);
+
+  // 녹음이 끝났을 때 ASR 전사로부터 음절 수 자동 산출.
+  useEffect(() => {
+    if (phase !== "done") return;
+    if (!asr.supported) return;
+    const finalText = normalizeTranscript(asr.finalTranscript);
+    if (autoFilled || !finalText) return;
+    setEditedTranscript(finalText);
+    setSyllables(String(countSyllables(finalText)));
+    setAutoFilled(true);
+  }, [phase, asr.finalTranscript, asr.supported, autoFilled]);
+
+  const recountFromEdited = useCallback(() => {
+    setSyllables(String(countSyllables(editedTranscript)));
+  }, [editedTranscript]);
 
   useEffect(() => () => cleanup(), [cleanup]);
 
@@ -170,8 +203,8 @@ export default function SpeechRatePage() {
           </h1>
           <p className="mt-2 max-w-3xl text-slate-600">
             녹음 한 번으로 전체속도 + 조음속도 + 쉬 구간 분석을
-            동시 제공합니다. VAD 로 쉬를 자동 분할하며 음절 수는
-            수동 입력합니다.
+            동시 제공합니다. VAD 로 쉬를 자동 분할하고, 실시간 음성 인식으로
+            음절 수까지 자동 산출합니다.
           </p>
         </div>
         {errorMsg && (
@@ -250,6 +283,17 @@ export default function SpeechRatePage() {
                   style={{ width: `${(elapsed / maxDuration) * 100}%` }}
                 />
               </div>
+              {asr.supported && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="mb-1 text-xs font-medium text-amber-900">
+                    실시간 전사 {asr.active ? "● 인식 중" : "대기"}
+                  </p>
+                  <p className="min-h-[1.5rem] text-sm text-slate-800">
+                    <span>{asr.finalTranscript}</span>
+                    <span className="text-slate-400"> {asr.interim}</span>
+                  </p>
+                </div>
+              )}
               <button
                 onClick={stopEarly}
                 className="w-full rounded-xl bg-slate-700 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-800"
@@ -283,23 +327,72 @@ export default function SpeechRatePage() {
                 </div>
               </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  음절 수 입력 (대상자가 말한 전체 음절 수)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={syllables}
-                  onChange={(e) => setSyllables(e.target.value)}
-                  placeholder="예: 45"
-                  className="w-full rounded-lg border border-slate-300 px-4 py-3 text-lg font-semibold tabular-nums focus:border-amber-500 focus:outline-none"
-                />
-                <p className="mt-1 text-xs text-slate-500">
-                  녹음을 다시 듣고 이 낭독 자료의 임상가 접근 음절 수를
-                  입력하세요.
-                </p>
-              </div>
+              {asr.supported ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      자동 전사 (수정 가능)
+                    </label>
+                    <textarea
+                      value={editedTranscript}
+                      onChange={(e) => setEditedTranscript(e.target.value)}
+                      rows={3}
+                      placeholder={
+                        asr.finalTranscript
+                          ? ""
+                          : "전사 결과 없음 — 직접 입력하거나 음절 수만 아래에 입력하세요."
+                      }
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
+                    />
+                    <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                      <span>
+                        Web Speech API (Chrome/Edge) · 한국어 인식
+                      </span>
+                      <button
+                        onClick={recountFromEdited}
+                        className="rounded border border-amber-300 bg-white px-2 py-1 font-medium text-amber-800 hover:bg-amber-50"
+                      >
+                        전사 → 음절 수 재계산
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      음절 수 (자동 카운트, 수정 가능)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={syllables}
+                      onChange={(e) => setSyllables(e.target.value)}
+                      placeholder="예: 45"
+                      className="w-full rounded-lg border border-slate-300 px-4 py-3 text-lg font-semibold tabular-nums focus:border-amber-500 focus:outline-none"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      한글 음절 블록·자모·숫자 자릿수·영어 단어(모음군) 합산.
+                      ASR 인식 오류 가능 → 임상가 검토 후 보정 권장.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    음절 수 입력 (대상자가 말한 전체 음절 수)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={syllables}
+                    onChange={(e) => setSyllables(e.target.value)}
+                    placeholder="예: 45"
+                    className="w-full rounded-lg border border-slate-300 px-4 py-3 text-lg font-semibold tabular-nums focus:border-amber-500 focus:outline-none"
+                  />
+                  <p className="mt-1 text-xs text-amber-700">
+                    이 브라우저는 음성 인식을 지원하지 않습니다. Chrome/Edge
+                    사용을 권장합니다. 직접 음절 수를 입력하세요.
+                  </p>
+                </div>
+              )}
 
               <div className="flex gap-3">
                 <button

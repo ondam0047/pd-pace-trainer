@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useKoreanASR } from "@/components/asr/useKoreanASR";
+import {
+  countSyllables,
+  normalizeTranscript,
+} from "@/components/asr/syllableCount";
 
 type DisfluencyType =
   | "syllable_rep"
@@ -83,6 +88,10 @@ export default function FluencyPage() {
   const [elapsed, setElapsed] = useState(0);
   const [tags, setTags] = useState<Tag[]>([]);
   const [syllables, setSyllables] = useState<string>("");
+  const [editedTranscript, setEditedTranscript] = useState<string>("");
+  const [autoFilled, setAutoFilled] = useState(false);
+
+  const asr = useKoreanASR();
 
   const startTimeRef = useRef(0);
   const timerRef = useRef<number | null>(null);
@@ -95,13 +104,17 @@ export default function FluencyPage() {
   const start = useCallback(() => {
     setElapsed(0);
     setTags([]);
+    setSyllables("");
+    setEditedTranscript("");
+    setAutoFilled(false);
     phaseRef.current = "recording";
     setPhase("recording");
     startTimeRef.current = performance.now();
     timerRef.current = window.setInterval(() => {
       setElapsed((performance.now() - startTimeRef.current) / 1000);
     }, 100);
-  }, []);
+    if (asr.supported) asr.start();
+  }, [asr]);
 
   const stop = useCallback(() => {
     if (timerRef.current !== null) {
@@ -110,7 +123,8 @@ export default function FluencyPage() {
     }
     phaseRef.current = "done";
     setPhase("done");
-  }, []);
+    asr.stop();
+  }, [asr]);
 
   const addTag = useCallback((type: DisfluencyType) => {
     if (phaseRef.current !== "recording") return;
@@ -140,7 +154,25 @@ export default function FluencyPage() {
     setPhase("idle");
     setTags([]);
     setSyllables("");
+    setEditedTranscript("");
+    setAutoFilled(false);
     setElapsed(0);
+    asr.reset();
+  };
+
+  // 세션 종료 시 ASR 전사로부터 음절 수 자동 산출
+  useEffect(() => {
+    if (phase !== "done") return;
+    if (!asr.supported) return;
+    const finalText = normalizeTranscript(asr.finalTranscript);
+    if (autoFilled || !finalText) return;
+    setEditedTranscript(finalText);
+    setSyllables(String(countSyllables(finalText)));
+    setAutoFilled(true);
+  }, [phase, asr.finalTranscript, asr.supported, autoFilled]);
+
+  const recountFromEdited = () => {
+    setSyllables(String(countSyllables(editedTranscript)));
   };
 
   useEffect(
@@ -223,7 +255,8 @@ export default function FluencyPage() {
           </h1>
           <p className="mt-2 max-w-3xl text-slate-600">
             임상가가 실시간으로 비유창 이벤트를 태그하면 %SS 와 유형별
-            비율을 자동 계산합니다. 키보드 1–6 또는 버튼으로 태그하세요.
+            비율을 자동 계산합니다. 키보드 1–6 또는 버튼으로 태그하고, 음절
+            수는 음성 인식으로 자동 산출됩니다 (수정 가능).
           </p>
         </div>
 
@@ -278,6 +311,17 @@ export default function FluencyPage() {
                   </button>
                 ))}
               </div>
+              {asr.supported && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="mb-1 text-xs font-medium text-amber-900">
+                    실시간 전사 {asr.active ? "● 인식 중" : "대기"}
+                  </p>
+                  <p className="min-h-[1.5rem] text-sm text-slate-800">
+                    <span>{asr.finalTranscript}</span>
+                    <span className="text-slate-400"> {asr.interim}</span>
+                  </p>
+                </div>
+              )}
               <button
                 onClick={stop}
                 className="w-full rounded-xl bg-slate-700 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-800"
@@ -414,8 +458,40 @@ export default function FluencyPage() {
               <h4 className="mb-3 text-sm font-semibold text-amber-900">
                 %SS 계산 (이 결과의 핵심)
               </h4>
+              {asr.supported ? (
+                <div className="mb-3 space-y-2">
+                  <label className="block text-sm font-medium text-amber-900">
+                    자동 전사 (수정 가능)
+                  </label>
+                  <textarea
+                    value={editedTranscript}
+                    onChange={(e) => setEditedTranscript(e.target.value)}
+                    rows={3}
+                    placeholder={
+                      asr.finalTranscript
+                        ? ""
+                        : "전사 결과 없음 — 직접 입력하거나 음절 수만 아래에 입력하세요."
+                    }
+                    className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm focus:border-amber-600 focus:outline-none"
+                  />
+                  <div className="flex items-center justify-between text-xs text-amber-900">
+                    <span>Web Speech API (Chrome/Edge) · 한국어 인식</span>
+                    <button
+                      onClick={recountFromEdited}
+                      className="rounded border border-amber-300 bg-white px-2 py-1 font-medium text-amber-800 hover:bg-amber-100"
+                    >
+                      전사 → 음절 수 재계산
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="mb-3 text-xs text-amber-900">
+                  이 브라우저는 음성 인식을 지원하지 않습니다. Chrome/Edge
+                  사용을 권장합니다. 직접 음절 수를 입력하세요.
+                </p>
+              )}
               <label className="mb-2 block text-sm font-medium text-amber-900">
-                대상자가 말한 전체 음절 수 (녹음 재청 후 입력)
+                전체 음절 수 (자동 카운트, 수정 가능)
               </label>
               <input
                 type="number"
