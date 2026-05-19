@@ -18,10 +18,9 @@ export type KoreanConsonant = {
   clinical: ClinicalNote;
 };
 
-// 좌표 기준: AnatomicalDiagram viewBox 580×720
-// 기본 혁: tip(440, 358), body(380, 355)
-const REST_TIP = { x: 440, y: 358 };
-const REST_BODY = { x: 380, y: 355 };
+// PNG 배경 viewBox 887×1024 좌표계
+const REST_TIP = { x: 660, y: 640 };
+const REST_BODY = { x: 540, y: 680 };
 
 export const KOREAN_CONSONANTS: KoreanConsonant[] = [
   // ——— 양순음 ———
@@ -39,7 +38,7 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
       velumOpen: true,
       lipClosure: true,
       airflow: "nasal",
-      highlight: { x: 466, y: 360, color: "#facc15" },
+      highlight: { x: 785, y: 655, label: "입술", color: "#facc15" },
     },
     clinical: {
       commonErrors: ["ㅏ으로 생략", "ㅂ으로 탈비음화"],
@@ -56,18 +55,18 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     place: "양순",
     manner: "파열음(평음)",
     priority: "low",
-    description: "입술을 닫았다 갑자기 터트림. 연구개 닫혀 대입 존재.",
+    description: "입술 폐쇄 → 갑자기 터트림. 연구개 닫혀 대입 존재.",
     articulation: {
       tongueTip: REST_TIP,
       tongueBody: REST_BODY,
       velumOpen: false,
       lipClosure: false,
       airflow: "plosive_burst",
-      highlight: { x: 466, y: 360, color: "#fb923c" },
+      highlight: { x: 785, y: 655, label: "입술 열림", color: "#fb923c" },
     },
     clinical: {
       commonErrors: ["ㅁ과 혼동 (비강을 제대로 닫지 못함)"],
-      facilitation: ["코 막고 발음 — ㅂ은 가능, ㅁ은 막혀 불가"],
+      facilitation: ["코 막고 발음 — ㅂ 가능 / ㅁ 불가"],
     },
   },
 
@@ -81,12 +80,12 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     priority: "medium",
     description: "혁끓을 윗잊못에 대고 연구개 하강 → 코로 공기.",
     articulation: {
-      tongueTip: { x: 440, y: 318 },
-      tongueBody: { x: 380, y: 340 },
+      tongueTip: { x: 700, y: 510 },
+      tongueBody: { x: 550, y: 620 },
       velumOpen: true,
       lipClosure: false,
       airflow: "nasal",
-      highlight: { x: 442, y: 320, label: "치조", color: "#facc15" },
+      highlight: { x: 705, y: 510, label: "치조", color: "#facc15" },
     },
     clinical: {
       commonErrors: ["ㄷ으로 탈비음화 (연구개 닫힘)"],
@@ -102,16 +101,16 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     priority: "medium",
     description: "혁끓을 치조융기에 대고 떼면서 파열. 구강음.",
     articulation: {
-      tongueTip: { x: 440, y: 318 },
-      tongueBody: { x: 380, y: 340 },
+      tongueTip: { x: 700, y: 510 },
+      tongueBody: { x: 550, y: 620 },
       velumOpen: false,
       lipClosure: false,
       airflow: "plosive_burst",
-      highlight: { x: 442, y: 320, label: "치조", color: "#fb923c" },
+      highlight: { x: 705, y: 510, label: "치조", color: "#fb923c" },
     },
     clinical: {
       commonErrors: ["ㅌ과 혼동 (기이 과다)", "ㄱ으로 후방화"],
-      facilitation: ["손등에 입검 대고 기의 양 확인 → ㅌ처럼 세지 않아야 ㄷ"],
+      facilitation: ["손등에 입검 대고 기의 양 확인"],
     },
   },
   {
@@ -121,14 +120,14 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     place: "치조",
     manner: "유음 (탄설음)",
     priority: "high",
-    description: "혁끓이 치조융기를 않게 치는 탄설음. 너무 길면 ㄴ/ㄷ 으로 인식됨.",
+    description: "혁끓이 치조융기를 않게 치는 탄설음.",
     articulation: {
-      tongueTip: { x: 440, y: 318 },
-      tongueBody: { x: 380, y: 340 },
+      tongueTip: { x: 705, y: 530 },
+      tongueBody: { x: 545, y: 640 },
       velumOpen: false,
       lipClosure: false,
       airflow: "flap",
-      highlight: { x: 442, y: 320, label: "않은 접촉", color: "#facc15" },
+      highlight: { x: 710, y: 530, label: "않은 접촉", color: "#facc15" },
     },
     clinical: {
       commonErrors: ["ㄷ/ㄴ으로 대치 (접촉이 길어짐)"],
@@ -147,12 +146,12 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     priority: "high",
     description: "혁끓은 치조에 닿고 혁 양쪽으로 공기 흐름.",
     articulation: {
-      tongueTip: { x: 440, y: 318 },
-      tongueBody: { x: 380, y: 340 },
+      tongueTip: { x: 705, y: 530 },
+      tongueBody: { x: 545, y: 640 },
       velumOpen: false,
       lipClosure: false,
       airflow: "lateral",
-      highlight: { x: 442, y: 320, label: "지속 접촉", color: "#facc15" },
+      highlight: { x: 710, y: 530, label: "지속 접촉", color: "#facc15" },
     },
     clinical: {
       commonErrors: ["ㄷ/ㄴ으로 대치", "탄설음과 혼용"],
@@ -169,14 +168,14 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     place: "치조",
     manner: "마찰음(평음)",
     priority: "high",
-    description: "혁끓을 치조융기 알에 두고 가운데 좋은 통로로 공기. 아동 조음장애 핵심.",
+    description: "혁끓을 치조융기 알에 두고 좋은 통로로 공기. 아동 조음장애 핵심.",
     articulation: {
-      tongueTip: { x: 440, y: 322 },
-      tongueBody: { x: 385, y: 345 },
+      tongueTip: { x: 700, y: 540 },
+      tongueBody: { x: 545, y: 660 },
       velumOpen: false,
       lipClosure: false,
       airflow: "fricative_oral",
-      highlight: { x: 442, y: 323, label: "좋은 통로", color: "#34d399" },
+      highlight: { x: 705, y: 540, label: "좋은 통로", color: "#34d399" },
     },
     clinical: {
       commonErrors: [
@@ -186,7 +185,7 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
       ],
       facilitation: [
         "이 달고 아래턱니과 윗니 평행 맞추기",
-        "빨대 발음 (straw cueing) — 가늘고 긴 통로 이미지",
+        "빨대 발음 — 가늘고 긴 통로 이미지",
         "대조 훈련: ㅅ/ɕ 구별",
       ],
       acousticTip: "스펙트럼 중심 ≈ 5500–8500Hz. /ʃ/(왜곡) 은 2800–4500Hz.",
@@ -199,14 +198,14 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     place: "치조",
     manner: "마찰음(경음)",
     priority: "high",
-    description: "ㅅ보다 혁 긴장·알력 더 큼. 이목이은 더 머남.",
+    description: "ㅅ보다 혁 긴장·알력 더 큼.",
     articulation: {
-      tongueTip: { x: 440, y: 322 },
-      tongueBody: { x: 385, y: 345 },
+      tongueTip: { x: 700, y: 540 },
+      tongueBody: { x: 545, y: 660 },
       velumOpen: false,
       lipClosure: false,
       airflow: "fricative_oral",
-      highlight: { x: 442, y: 323, label: "알력 교서", color: "#22c55e" },
+      highlight: { x: 705, y: 540, label: "알력 교서", color: "#22c55e" },
     },
     clinical: {
       commonErrors: ["ㅅ으로 약화 (이완해짐)"],
@@ -224,19 +223,16 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     priority: "high",
     description: "혁날·혁목이 경구개에 닿아 파열 → 마찰 이어짐.",
     articulation: {
-      tongueTip: { x: 420, y: 320 },
-      tongueBody: { x: 370, y: 305 },
+      tongueTip: { x: 650, y: 530 },
+      tongueBody: { x: 565, y: 530 },
       velumOpen: false,
       lipClosure: false,
       airflow: "fricative_oral",
-      highlight: { x: 375, y: 303, label: "경구개", color: "#a78bfa" },
+      highlight: { x: 580, y: 500, label: "경구개", color: "#a78bfa" },
     },
     clinical: {
       commonErrors: ["ㄷ으로 탈파찰화", "ㅅ과 혼동"],
-      facilitation: [
-        "ㄷ + ㅅ 소림 고민 → 연속도는 느낌",
-        "거울에서 혁 위치 확인",
-      ],
+      facilitation: ["ㄷ + ㅅ 소림 고민", "거울에서 혁 위치 확인"],
     },
   },
   {
@@ -248,15 +244,15 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     priority: "high",
     description: "ㅈ + 강한 기음.",
     articulation: {
-      tongueTip: { x: 420, y: 320 },
-      tongueBody: { x: 370, y: 305 },
+      tongueTip: { x: 650, y: 530 },
+      tongueBody: { x: 565, y: 530 },
       velumOpen: false,
       lipClosure: false,
       airflow: "fricative_oral",
-      highlight: { x: 375, y: 303, label: "경구개 + 기음", color: "#c084fc" },
+      highlight: { x: 580, y: 500, label: "경구개 + 기음", color: "#c084fc" },
     },
     clinical: {
-      commonErrors: ["ㅈ과 혼동 (기음 부족)"],
+      commonErrors: ["ㅈ과 혼동 (기이 부족)"],
       facilitation: ["입앞 종이 마교 대비"],
     },
   },
@@ -269,12 +265,12 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     priority: "high",
     description: "ㅈ보다 긴장 경음. 기이 적음.",
     articulation: {
-      tongueTip: { x: 420, y: 320 },
-      tongueBody: { x: 370, y: 305 },
+      tongueTip: { x: 650, y: 530 },
+      tongueBody: { x: 565, y: 530 },
       velumOpen: false,
       lipClosure: false,
       airflow: "fricative_oral",
-      highlight: { x: 375, y: 303, label: "경구개 긴장", color: "#a855f7" },
+      highlight: { x: 580, y: 500, label: "경구개 긴장", color: "#a855f7" },
     },
     clinical: {
       commonErrors: ["ㅈ으로 약화", "ㅊ과 혼동"],
@@ -290,14 +286,14 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     place: "연구개",
     manner: "파열음(평음)",
     priority: "high",
-    description: "혁목이 연구개에 닿았다 떼면서 파열. 뒤소리라 아동 힘들어함.",
+    description: "혁목이 연구개에 닿았다 떼면서 파열. 아동 힘들어함.",
     articulation: {
-      tongueTip: { x: 420, y: 365 },
-      tongueBody: { x: 340, y: 295 },
+      tongueTip: { x: 660, y: 670 },
+      tongueBody: { x: 450, y: 510 },
       velumOpen: false,
       lipClosure: false,
       airflow: "plosive_burst",
-      highlight: { x: 320, y: 293, label: "연구개", color: "#fb7185" },
+      highlight: { x: 440, y: 510, label: "연구개", color: "#fb7185" },
     },
     clinical: {
       commonErrors: [
@@ -307,7 +303,7 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
       facilitation: [
         "고개 젝혀서 혁목 뒤쪽 이동 유도",
         "터끍에 손가락 괴고 높이 뒤 팁 업으로 일기",
-        "“가금”·“고기” 비교 종이 휠림 확인",
+        "“가금”·“고기” 비교",
       ],
     },
   },
@@ -320,12 +316,12 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     priority: "high",
     description: "ㄱ + 강한 기음.",
     articulation: {
-      tongueTip: { x: 420, y: 365 },
-      tongueBody: { x: 340, y: 295 },
+      tongueTip: { x: 660, y: 670 },
+      tongueBody: { x: 450, y: 510 },
       velumOpen: false,
       lipClosure: false,
       airflow: "plosive_burst",
-      highlight: { x: 320, y: 293, label: "연구개 + 기음", color: "#f43f5e" },
+      highlight: { x: 440, y: 510, label: "연구개 + 기음", color: "#f43f5e" },
     },
     clinical: {
       commonErrors: ["ㄱ과 혼동 (기이 부족)"],
@@ -339,14 +335,14 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     place: "연구개",
     manner: "파열음(경음)",
     priority: "high",
-    description: "경음 연구개. 기이 적고 알력/긴장 큼.",
+    description: "경음 연구개. 기이 적고 긴장 큼.",
     articulation: {
-      tongueTip: { x: 420, y: 365 },
-      tongueBody: { x: 340, y: 295 },
+      tongueTip: { x: 660, y: 670 },
+      tongueBody: { x: 450, y: 510 },
       velumOpen: false,
       lipClosure: false,
       airflow: "plosive_burst",
-      highlight: { x: 320, y: 293, label: "연구개 긴장", color: "#e11d48" },
+      highlight: { x: 440, y: 510, label: "연구개 긴장", color: "#e11d48" },
     },
     clinical: {
       commonErrors: ["ㄱ으로 약화", "ㅋ과 혼동"],
@@ -362,12 +358,12 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     priority: "high",
     description: "혁목이 연구개에 닿고 연구개 하강 → 코로 공기. “삽”, “공”.",
     articulation: {
-      tongueTip: { x: 420, y: 365 },
-      tongueBody: { x: 340, y: 295 },
+      tongueTip: { x: 660, y: 670 },
+      tongueBody: { x: 450, y: 510 },
       velumOpen: true,
       lipClosure: false,
       airflow: "nasal",
-      highlight: { x: 320, y: 293, label: "연구개 — 비음", color: "#facc15" },
+      highlight: { x: 440, y: 510, label: "연구개 — 비음", color: "#facc15" },
     },
     clinical: {
       commonErrors: ["ㄴ으로 전방화 (“당→단”)"],
@@ -385,17 +381,17 @@ export const KOREAN_CONSONANTS: KoreanConsonant[] = [
     place: "성문",
     manner: "마찰음",
     priority: "medium",
-    description: "성문에서 공기만 세게 내보냄. 혁 위치는 따르는 모음에 따라 결정.",
+    description: "성문에서 공기만 세게 내보냄.",
     articulation: {
       tongueTip: REST_TIP,
       tongueBody: REST_BODY,
       velumOpen: false,
       lipClosure: false,
       airflow: "fricative_oral",
-      highlight: { x: 232, y: 522, label: "성문", color: "#fde047" },
+      highlight: { x: 250, y: 905, label: "성문", color: "#fde047" },
     },
     clinical: {
-      commonErrors: ["생략 (“하늘→아늘”)", "수의르게 될 때 속삭임"],
+      commonErrors: ["생략 (“하늘→아늘”)"],
       facilitation: ["손바닥에 따뜻한 숨 느껴지게 긴 “하—” 유지"],
     },
   },

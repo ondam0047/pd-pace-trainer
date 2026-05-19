@@ -22,21 +22,20 @@ import {
 
 const EMA_ALPHA = 0.6;
 
-// F1/F2 → SVG 혁 좌표 매핑 (AnatomicalDiagram 새 viewBox 580×720)
-// 학령전기까지 대응하도록 범위 확장
+// F1/F2 → PNG 배경 viewBox 887×1024 좌표로 매핑
 function formantsToArticulation(
   f1: number | null,
   f2: number | null,
 ): ArticulationState | undefined {
   if (f1 === null || f2 === null) return undefined;
-  // F1 250 → 320 (고모음, 혁 위), F1 1100 → 400 (저모음, 혁 아래)
-  const f1Norm = Math.max(0, Math.min(1, (f1 - 250) / (1100 - 250)));
-  const bodyY = 320 + f1Norm * 80;
-  // F2 700 → 290 (후설), F2 2800 → 440 (전설), F2 3300 초과 → 소폭 확장
-  const f2Norm = Math.max(0, Math.min(1.1, (f2 - 700) / (2800 - 700)));
-  const bodyX = 290 + f2Norm * 150;
-  const tipX = bodyX + 60;
-  const tipY = bodyY + 5;
+  // F1 200 (고모음) → bodyY 560, F1 1100 (저모음) → bodyY 770
+  const f1Norm = Math.max(0, Math.min(1, (f1 - 200) / (1100 - 200)));
+  const bodyY = 560 + f1Norm * 210;
+  // F2 700 (후설) → bodyX 360, F2 3000 (전설) → bodyX 680
+  const f2Norm = Math.max(0, Math.min(1, (f2 - 700) / (3000 - 700)));
+  const bodyX = 360 + f2Norm * 320;
+  const tipX = bodyX + 90;
+  const tipY = bodyY - 30;
   return {
     tongueBody: { x: bodyX, y: bodyY },
     tongueTip: { x: tipX, y: tipY },
@@ -54,7 +53,7 @@ const REFERENCE_OPTIONS: { id: VowelReference; label: string }[] = [
 
 export default function VocalTractVisualizer() {
   const [isRecording, setIsRecording] = useState(false);
-  const [reference, setReference] = useState<VowelReference>("female");
+  const [reference, setReference] = useState<VowelReference>("male");
   const [f1, setF1] = useState<number | null>(null);
   const [f2, setF2] = useState<number | null>(null);
   const [f3, setF3] = useState<number | null>(null);
@@ -270,7 +269,8 @@ export default function VocalTractVisualizer() {
             />
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            F1·F2 값에 따라 혁목(dorsum) 위치가 실시간으로 이동합니다.
+            F1·F2 값에 따라 빨간 마커(혁끓) + 주황 마커(혁목)이 실시간으로
+            이동. 자음 선택 시에는 연구개 · 입술 · 공기 흐름 애니메이션이 오버레이.
           </p>
         </div>
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -329,7 +329,7 @@ export default function VocalTractVisualizer() {
             전체 초기화
           </button>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           {KOREAN_VOWELS.map((v) => {
             const isCalibrated = calibratedSet.has(v.hangul);
             const stored = calibration[v.hangul];
@@ -370,29 +370,6 @@ export default function VocalTractVisualizer() {
           })}
         </div>
       </div>
-
-      <details className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-        <summary className="cursor-pointer text-sm font-medium text-slate-700">
-          분석 방법 · 근거 자료
-        </summary>
-        <div className="mt-3 space-y-2 text-xs text-slate-600">
-          <p>
-            <strong>포먼트 추정:</strong> pre-emphasis(α=0.97) → Hamming 윈도우
-            → 자기상관 LPC(order 18) + Levinson-Durbin → 각 대역 최강 피크
-            (F1∈200–1100, F2∈700–3300, F3∈ 2000–4500) 선택.
-          </p>
-          <p>
-            <strong>표준 F1/F2:</strong> 성인—이호영(1996), 신지영(2014),
-            박한상(2003) / 학령전기—이재선·박지원(2010),
-            김미진·이혜은(2014). 화자별 ±15% 변동 → 개인 캐리브레이션 권장.
-          </p>
-          <p>
-            <strong>캐리브레이션:</strong> 성도의 절대 길이·구조가 달라 같은 모음이어도
-            F1/F2 가 크게 달라집니다. 머신러닝 없이 임상 적용을 위해 각 회기
-            시작 시 주요 모음을 캡처하는 것을 표준 절차로 삼으세요.
-          </p>
-        </div>
-      </details>
     </div>
   );
 }
