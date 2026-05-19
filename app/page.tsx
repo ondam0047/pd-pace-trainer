@@ -87,6 +87,7 @@ export default function HomePage() {
         <nav className="vl-nav">
           <a href="#" className="active">홈</a>
           <a href="#tools">도구</a>
+          <Link href="/history">기록</Link>
           <a href="#about">소개</a>
           <a href="https://dept.daelim.ac.kr/slh/index.do" target="_blank" rel="noopener" data-keep>학과 홈페이지 ↗</a>
           <button className="vl-theme-toggle" type="button" onClick={toggleTheme} aria-label="테마 전환" title="테마 전환" data-keep>

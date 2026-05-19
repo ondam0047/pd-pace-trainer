@@ -11,6 +11,7 @@ import {
   countSyllables,
   normalizeTranscript,
 } from "@/components/asr/syllableCount";
+import SaveToHistory from "@/components/SaveToHistory";
 
 type Phase = "idle" | "recording" | "done";
 const DURATION_OPTIONS = [10, 15, 30, 60] as const;
@@ -423,15 +424,30 @@ export default function SpeechRatePage() {
               <ResultBox label="평균 쉬 길이" value={`${(result.meanPauseDuration * 1000).toFixed(0)} ms`} sub={`최대 ${(result.maxPauseDuration * 1000).toFixed(0)} ms`} />
             </div>
             {validSyllables && (
-              <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4">
-                <h4 className="mb-3 text-sm font-semibold text-amber-900">
-                  음절 수 {syllablesNum}개 기준 말속도
-                </h4>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <ResultBox label="전체 말속도" value={`${overallSPS.toFixed(2)} SPS`} sub={`≈ ${overallWPM.toFixed(0)} WPM`} highlight />
-                  <ResultBox label="조음속도" value={`${articulationSPS.toFixed(2)} SPS`} sub={"쉬 제외"} />
-                  <ResultBox label="속도 비율" value={`${(overallSPS / articulationSPS * 100 || 0).toFixed(0)}%`} sub={"전체/조음"} />
+              <div className="mt-5 space-y-4">
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+                  <h4 className="mb-3 text-sm font-semibold text-amber-900">
+                    음절 수 {syllablesNum}개 기준 말속도
+                  </h4>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <ResultBox label="전체 말속도" value={`${overallSPS.toFixed(2)} SPS`} sub={`≈ ${overallWPM.toFixed(0)} WPM`} highlight />
+                    <ResultBox label="조음속도" value={`${articulationSPS.toFixed(2)} SPS`} sub={"쉬 제외"} />
+                    <ResultBox label="속도 비율" value={`${(overallSPS / articulationSPS * 100 || 0).toFixed(0)}%`} sub={"전체/조음"} />
+                  </div>
                 </div>
+                <SaveToHistory
+                  moduleId="speech_rate"
+                  summary={{
+                    "음절수": syllablesNum,
+                    "전체속도(SPS)": +overallSPS.toFixed(2),
+                    "조음속도(SPS)": +articulationSPS.toFixed(2),
+                    "전체시간(s)": +result.totalDuration.toFixed(2),
+                    "발화시간(s)": +result.speechDuration.toFixed(2),
+                    "쉼횟수": result.pauseCount,
+                    "장쉼횟수": result.longPauseCount,
+                    "평균쉼(ms)": +(result.meanPauseDuration * 1000).toFixed(0),
+                  }}
+                />
               </div>
             )}
           </div>

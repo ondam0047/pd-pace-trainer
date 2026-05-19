@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import SaveToHistory from "@/components/SaveToHistory";
 
 const DB_MIN = 30;
 const DB_MAX = 100;
@@ -260,6 +261,21 @@ export default function IntensityTrainerPage() {
         </div>
 
         {isRecording && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">녹음 중 · 경과 {elapsed.toFixed(1)} / {duration}초</div>}
+
+        {!isRecording && stats.total > 0 && (
+          <SaveToHistory
+            moduleId="intensity_trainer"
+            summary={{
+              "평균(dB)": +stats.mean.toFixed(1),
+              "최소(dB)": +stats.min.toFixed(1),
+              "최대(dB)": +stats.max.toFixed(1),
+              "목표체류(%)": +stats.inRangePct.toFixed(1),
+              "목표하한": lowerBound,
+              "목표상한": upperBound,
+              "녹음시간(초)": duration,
+            }}
+          />
+        )}
 
         <details className="rounded-lg border border-slate-200 bg-white px-4 py-3">
           <summary className="cursor-pointer text-sm font-medium text-slate-700">목표 구간 참고 + 근거</summary>

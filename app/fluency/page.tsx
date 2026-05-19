@@ -7,6 +7,7 @@ import {
   countSyllables,
   normalizeTranscript,
 } from "@/components/asr/syllableCount";
+import SaveToHistory from "@/components/SaveToHistory";
 
 type DisfluencyType =
   | "syllable_rep"
@@ -502,22 +503,37 @@ export default function FluencyPage() {
                 className="w-full rounded-lg border border-amber-300 bg-white px-4 py-3 text-lg font-semibold tabular-nums focus:border-amber-600 focus:outline-none"
               />
               {validSyll && (
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <ResultBox
-                    label="%SS"
-                    value={`${SSPct.toFixed(2)} %`}
-                    sub={`${stutteringCount} / ${syllablesNum} 음절`}
-                    accent="rose"
-                    highlight
-                  />
-                  <ResultBox
-                    label="중증도 추정"
-                    value={severity}
-                    sub="Riley SSI-4 프리퀴시 항목 기준"
-                    accent="amber"
-                    highlight
-                  />
-                </div>
+                <>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <ResultBox
+                      label="%SS"
+                      value={`${SSPct.toFixed(2)} %`}
+                      sub={`${stutteringCount} / ${syllablesNum} 음절`}
+                      accent="rose"
+                      highlight
+                    />
+                    <ResultBox
+                      label="중증도 추정"
+                      value={severity}
+                      sub="Riley SSI-4 프리퀴시 항목 기준"
+                      accent="amber"
+                      highlight
+                    />
+                  </div>
+                  <div className="mt-4">
+                    <SaveToHistory
+                      moduleId="fluency"
+                      summary={{
+                        "음절수": syllablesNum,
+                        "%SS": +SSPct.toFixed(2),
+                        "말더듬성": stutteringCount,
+                        "정상비유창": normalDisfluency,
+                        "중증도": severity,
+                        "녹화시간(초)": +elapsed.toFixed(1),
+                      }}
+                    />
+                  </div>
+                </>
               )}
             </div>
           </div>

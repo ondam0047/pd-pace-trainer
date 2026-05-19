@@ -9,6 +9,7 @@ import {
   getStatus,
   type VoiceQualityResult,
 } from "@/components/voiceQuality/analyzer";
+import SaveToHistory from "@/components/SaveToHistory";
 
 const RECORD_DURATION_SEC = 3;
 
@@ -168,17 +169,31 @@ export default function VoiceQualityPage() {
         </div>
 
         {hasResult && phase === "done" && (
-          <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
-            <h3 className="mb-4 text-lg font-bold text-slate-900">최근 결과</h3>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <ResultBox label="F0 평균" value={`${currentResult.f0Mean.toFixed(1)} Hz`} sub={`SD ${currentResult.f0SD.toFixed(1)}`} />
-              <ResultBox label="유효 프레임" value={`${currentResult.validFrames}`} sub={`${currentResult.durationSec.toFixed(2)}초`} />
-              <ResultBox label="HNR" value={`${currentResult.hnr.toFixed(1)} dB`} status={getStatus(currentResult.hnr, "hnr")} />
-              <ResultBox label="jitter (local)" value={`${currentResult.jitterLocal.toFixed(2)} %`} status={getStatus(currentResult.jitterLocal, "jitterLocal")} />
-              <ResultBox label="jitter (RAP)" value={`${currentResult.jitterRap.toFixed(2)} %`} status={getStatus(currentResult.jitterRap, "jitterRap")} />
-              <ResultBox label="shimmer (local)" value={`${currentResult.shimmerLocal.toFixed(2)} %`} status={getStatus(currentResult.shimmerLocal, "shimmerLocal")} />
-              <ResultBox label="shimmer (APQ3)" value={`${currentResult.shimmerApq3.toFixed(2)} %`} status={getStatus(currentResult.shimmerApq3, "shimmerApq3")} />
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
+              <h3 className="mb-4 text-lg font-bold text-slate-900">최근 결과</h3>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <ResultBox label="F0 평균" value={`${currentResult.f0Mean.toFixed(1)} Hz`} sub={`SD ${currentResult.f0SD.toFixed(1)}`} />
+                <ResultBox label="유효 프레임" value={`${currentResult.validFrames}`} sub={`${currentResult.durationSec.toFixed(2)}초`} />
+                <ResultBox label="HNR" value={`${currentResult.hnr.toFixed(1)} dB`} status={getStatus(currentResult.hnr, "hnr")} />
+                <ResultBox label="jitter (local)" value={`${currentResult.jitterLocal.toFixed(2)} %`} status={getStatus(currentResult.jitterLocal, "jitterLocal")} />
+                <ResultBox label="jitter (RAP)" value={`${currentResult.jitterRap.toFixed(2)} %`} status={getStatus(currentResult.jitterRap, "jitterRap")} />
+                <ResultBox label="shimmer (local)" value={`${currentResult.shimmerLocal.toFixed(2)} %`} status={getStatus(currentResult.shimmerLocal, "shimmerLocal")} />
+                <ResultBox label="shimmer (APQ3)" value={`${currentResult.shimmerApq3.toFixed(2)} %`} status={getStatus(currentResult.shimmerApq3, "shimmerApq3")} />
+              </div>
             </div>
+            <SaveToHistory
+              moduleId="voice_quality"
+              summary={{
+                "F0(Hz)": +currentResult.f0Mean.toFixed(1),
+                "F0_SD": +currentResult.f0SD.toFixed(1),
+                "HNR(dB)": +currentResult.hnr.toFixed(1),
+                "jitter_local(%)": +currentResult.jitterLocal.toFixed(2),
+                "jitter_RAP(%)": +currentResult.jitterRap.toFixed(2),
+                "shimmer_local(%)": +currentResult.shimmerLocal.toFixed(2),
+                "shimmer_APQ3(%)": +currentResult.shimmerApq3.toFixed(2),
+              }}
+            />
           </div>
         )}
 

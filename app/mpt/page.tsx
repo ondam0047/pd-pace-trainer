@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import SaveToHistory from "@/components/SaveToHistory";
 
 const VOICE_THRESHOLD = 0.008;
 const END_SILENCE_MS = 500;
@@ -233,14 +234,26 @@ export default function MptPage() {
                 ))}
               </div>
               {trials.length >= MAX_TRIALS && (
-                <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 p-4">
-                  <h3 className="mb-3 text-sm font-semibold text-emerald-900">종합 결과</h3>
-                  <div className="grid gap-3 sm:grid-cols-4">
-                    <Stat label="평균" value={`${mean.toFixed(2)} 초`} highlight />
-                    <Stat label="최대" value={`${maxVal.toFixed(2)} 초`} />
-                    <Stat label="최소" value={`${minVal.toFixed(2)} 초`} />
-                    <Stat label="표준편차" value={`${sd.toFixed(2)} 초`} />
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4">
+                    <h3 className="mb-3 text-sm font-semibold text-emerald-900">종합 결과</h3>
+                    <div className="grid gap-3 sm:grid-cols-4">
+                      <Stat label="평균" value={`${mean.toFixed(2)} 초`} highlight />
+                      <Stat label="최대" value={`${maxVal.toFixed(2)} 초`} />
+                      <Stat label="최소" value={`${minVal.toFixed(2)} 초`} />
+                      <Stat label="표준편차" value={`${sd.toFixed(2)} 초`} />
+                    </div>
                   </div>
+                  <SaveToHistory
+                    moduleId="mpt"
+                    summary={{
+                      "평균(초)": +mean.toFixed(2),
+                      "최대(초)": +maxVal.toFixed(2),
+                      "최소(초)": +minVal.toFixed(2),
+                      "SD(초)": +sd.toFixed(2),
+                      "시행수": trials.length,
+                    }}
+                  />
                 </div>
               )}
             </>
