@@ -119,7 +119,7 @@ export default function ResultsPage() {
               <input
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
-                placeholder="예: 김OO / PD-001"
+                placeholder="예: 김OO / SLP-001"
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-slate-500"
               />
             </div>
