@@ -11,89 +11,128 @@ import {
 } from "@react-three/drei";
 import * as THREE from "three";
 
-const MODEL_URL = "/models/head-sagittal.glb";
+const MODEL_URL = "/models/head-sagittal-rigged.glb";
 
-function HeadModel({
-  metalness,
-  flatLit,
-  clip,
-  clipAxis,
-  clipPos,
-}: {
+type Ctrl = {
+  jaw: number; // 0..1 open
+  tip: number; // -1..1 (up+)
+  body: number; // -1..1 (up+)
+  velum: number; // 0..1 lower
+  lip: number; // 0..1 close
   metalness: number;
-  flatLit: boolean;
-  clip: boolean;
-  clipAxis: "x" | "y" | "z";
-  clipPos: number;
-}) {
-  const { scene } = useGLTF(MODEL_URL);
+  playing: boolean;
+  rate: number;
+};
 
-  // Normalize materials (Meshy exports often set metalness=1 which renders dark
-  // without an HDR environment). Force a sane albedo-lit setup.
-  const cloned = useMemo(() => {
-    const s = scene.clone(true);
-    s.traverse((o) => {
+function Rig({ ctrl }: { ctrl: React.RefObject<Ctrl> }) {
+  const { scene } = useGLTF(MODEL_URL);
+  const bones = useRef<Record<string, THREE.Object3D | null>>({});
+  const rest = useRef<Record<string, THREE.Vector3>>({});
+  const t = useRef(0);
+
+  useEffect(() => {
+    scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) {
-        m.castShadow = true;
-        m.receiveShadow = true;
         const mat = m.material as THREE.MeshStandardMaterial;
         if (mat && "metalness" in mat) {
-          mat.metalness = metalness;
+          mat.metalness = 0;
           mat.roughness = 0.85;
           mat.side = THREE.DoubleSide;
           mat.needsUpdate = true;
         }
       }
     });
-    return s;
-  }, [scene, metalness]);
+    for (const name of ["jaw", "tongue_body", "tongue_tip", "velum", "lip_upper"]) {
+      const b = scene.getObjectByName(name) || null;
+      bones.current[name] = b;
+      if (b) rest.current[name] = b.position.clone();
+    }
+  }, [scene]);
 
-  const plane = useMemo(() => {
-    const n = new THREE.Vector3(
-      clipAxis === "x" ? 1 : 0,
-      clipAxis === "y" ? 1 : 0,
-      clipAxis === "z" ? 1 : 0,
-    );
-    return new THREE.Plane(n, 0);
-  }, [clipAxis]);
+  useFrame((_, dt) => {
+    const c = ctrl.current;
+    if (!c) return;
+    let jaw = c.jaw,
+      tip = c.tip,
+      velum = c.velum,
+      lip = c.lip;
+    if (c.playing) {
+      t.current += dt * c.rate;
+      const tri = Math.abs(((t.current % 1) * 2) - 1); // 0..1..0
+      const g = tri * tri * (3 - 2 * tri);
+      jaw = 0.15 + g * 0.5;
+      tip = g * 0.8;
+      lip = 0;
+      velum = 0;
+    }
+    const b = bones.current;
+    if (b.jaw) b.jaw.rotation.z = -jaw * 0.5;
+    if (b.tongue_tip) b.tongue_tip.rotation.z = tip * 0.9;
+    if (b.tongue_body && rest.current.tongue_body) {
+      b.tongue_body.position.y = rest.current.tongue_body.y + c.body * 0.14;
+      b.tongue_body.position.x =
+        rest.current.tongue_body.x - Math.max(0, c.body) * 0.06;
+    }
+    if (b.velum) b.velum.rotation.z = -velum * 0.7;
+    if (b.lip_upper && rest.current.lip_upper) {
+      b.lip_upper.position.y = rest.current.lip_upper.y - lip * 0.07;
+    }
+  });
 
-  useEffect(() => {
-    plane.constant = -clipPos;
-  }, [plane, clipPos]);
-
-  useEffect(() => {
-    cloned.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh) {
-        const mat = m.material as THREE.MeshStandardMaterial;
-        if (mat) {
-          mat.clippingPlanes = clip ? [plane] : [];
-          mat.clipShadows = true;
-          mat.flatShading = flatLit;
-          mat.needsUpdate = true;
-        }
-      }
-    });
-  }, [cloned, clip, plane, flatLit]);
-
-  return <primitive object={cloned} />;
+  return <primitive object={scene} />;
 }
 
-function Spin({ on }: { on: boolean }) {
-  useFrame((state, dt) => {
-    if (on) state.scene.rotation.y += dt * 0.3;
-  });
-  return null;
+function Slider({
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-2 text-xs text-slate-700">
+      <span className="w-20">{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="flex-1"
+      />
+      <span className="w-10 tabular-nums text-right">{value.toFixed(2)}</span>
+    </label>
+  );
 }
 
 export default function GlbHeadViewer() {
-  const [metalness, setMetalness] = useState(0);
-  const [clip, setClip] = useState(false);
-  const [clipAxis, setClipAxis] = useState<"x" | "y" | "z">("z");
-  const [clipPos, setClipPos] = useState(0);
+  const ctrl = useRef<Ctrl>({
+    jaw: 0.1,
+    tip: 0,
+    body: 0,
+    velum: 0,
+    lip: 0,
+    metalness: 0,
+    playing: false,
+    rate: 2,
+  });
+  const [, force] = useState(0);
+  const set = (patch: Partial<Ctrl>) => {
+    Object.assign(ctrl.current, patch);
+    force((n) => n + 1);
+  };
+  const c = ctrl.current;
   const [autoRotate, setAutoRotate] = useState(false);
-  const glRef = useRef(false);
 
   return (
     <div className="flex h-full min-h-[640px] w-full flex-col gap-3 lg:flex-row">
@@ -105,38 +144,28 @@ export default function GlbHeadViewer() {
         }}
       >
         <Canvas
-          camera={{ position: [0, 0, 3], fov: 35, near: 0.01, far: 100 }}
+          camera={{ position: [2.4, 0, 0.6], fov: 35, near: 0.01, far: 100 }}
           dpr={[1, 2]}
-          gl={{ alpha: true, antialias: true, localClippingEnabled: true }}
-          shadows
-          onCreated={({ gl }) => {
-            gl.localClippingEnabled = true;
-            glRef.current = true;
-          }}
+          gl={{ alpha: true, antialias: true }}
         >
           <ambientLight intensity={0.6} />
           <hemisphereLight args={["#fff1e8", "#2a2030", 0.5]} />
-          <directionalLight position={[3, 4, 6]} intensity={1.2} color="#fff2e6" castShadow />
+          <directionalLight position={[3, 4, 6]} intensity={1.2} color="#fff2e6" />
           <directionalLight position={[-4, 1.5, 3]} intensity={0.5} color="#cfe0ff" />
-          <pointLight position={[0, 0, 4]} intensity={0.5} color="#ffd9c0" />
+          <pointLight position={[2, 0, 4]} intensity={0.5} color="#ffd9c0" />
 
           <Suspense fallback={null}>
-            <Bounds fit clip observe margin={1.1}>
-              <HeadModel
-                metalness={metalness}
-                flatLit={false}
-                clip={clip}
-                clipAxis={clipAxis}
-                clipPos={clipPos}
-              />
+            <Bounds fit clip observe margin={1.15}>
+              <Rig ctrl={ctrl} />
             </Bounds>
           </Suspense>
-          <Spin on={autoRotate} />
 
           <OrbitControls
             enablePan
             enableZoom
             enableRotate
+            autoRotate={autoRotate}
+            autoRotateSpeed={0.6}
             minDistance={0.5}
             maxDistance={20}
             makeDefault
@@ -154,72 +183,46 @@ export default function GlbHeadViewer() {
 
       <div className="flex w-full max-w-md flex-col gap-3 rounded-2xl bg-white p-4 shadow-sm lg:w-80">
         <div>
-          <h3 className="text-base font-semibold text-slate-900">실사 모델 (GLB)</h3>
+          <h3 className="text-base font-semibold text-slate-900">조음기관 리깅 (GLB)</h3>
           <p className="mt-1 text-xs text-slate-500">
-            Meshy AI 사지털 단면 모델. 방향·구강 위치 확인용 임시 뷰어입니다.
+            본(턱·혀·연구개·입술)으로 실사 모델을 직접 움직입니다. 슬라이더로
+            자유롭게 조정하거나 반복 재생으로 자동 조음을 봅니다.
           </p>
         </div>
 
-        <label className="flex items-center justify-between gap-2 text-xs text-slate-700">
-          금속감(metalness)
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={metalness}
-            onChange={(e) => setMetalness(parseFloat(e.target.value))}
-          />
-          <span className="w-8 tabular-nums">{metalness.toFixed(2)}</span>
-        </label>
+        <button
+          onClick={() => set({ playing: !c.playing })}
+          className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+        >
+          {c.playing ? "⏸ 정지" : "▶ 반복 조음 재생"}
+        </button>
 
-        <label className="flex items-center gap-2 text-xs text-slate-700">
-          <input type="checkbox" checked={clip} onChange={(e) => setClip(e.target.checked)} />
-          단면 클리핑(잘라보기)
-        </label>
-
-        {clip && (
-          <>
-            <div className="flex gap-2 text-xs">
-              {(["x", "y", "z"] as const).map((a) => (
-                <button
-                  key={a}
-                  onClick={() => setClipAxis(a)}
-                  className={
-                    "rounded px-2 py-1 " +
-                    (clipAxis === a
-                      ? "bg-slate-900 text-white"
-                      : "bg-slate-100 text-slate-700")
-                  }
-                >
-                  {a.toUpperCase()}축
-                </button>
-              ))}
-            </div>
-            <label className="flex items-center justify-between gap-2 text-xs text-slate-700">
-              위치
-              <input
-                type="range"
-                min={-1}
-                max={1}
-                step={0.01}
-                value={clipPos}
-                onChange={(e) => setClipPos(parseFloat(e.target.value))}
-              />
-              <span className="w-10 tabular-nums">{clipPos.toFixed(2)}</span>
-            </label>
-          </>
+        {c.playing && (
+          <Slider label="속도" min={0.5} max={4} step={0.1} value={c.rate} onChange={(v) => set({ rate: v })} />
         )}
+
+        <div className="mt-1 border-t border-slate-100 pt-2">
+          <div className="mb-1 text-xs font-medium text-slate-700">수동 제어</div>
+          <div className="flex flex-col gap-2">
+            <Slider label="턱 벌림" min={0} max={1} step={0.01} value={c.jaw} onChange={(v) => set({ jaw: v, playing: false })} />
+            <Slider label="혀끝" min={-1} max={1} step={0.01} value={c.tip} onChange={(v) => set({ tip: v, playing: false })} />
+            <Slider label="혀 몸통" min={-1} max={1} step={0.01} value={c.body} onChange={(v) => set({ body: v, playing: false })} />
+            <Slider label="연구개" min={0} max={1} step={0.01} value={c.velum} onChange={(v) => set({ velum: v, playing: false })} />
+            <Slider label="윗입술" min={0} max={1} step={0.01} value={c.lip} onChange={(v) => set({ lip: v, playing: false })} />
+          </div>
+        </div>
+
+        <Slider label="금속감" min={0} max={1} step={0.05} value={c.metalness} onChange={(v) => set({ metalness: v })} />
 
         <label className="flex items-center gap-2 text-xs text-slate-700">
           <input type="checkbox" checked={autoRotate} onChange={(e) => setAutoRotate(e.target.checked)} />
           자동 회전
         </label>
 
-        <div className="mt-2 rounded-xl bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-800">
-          <b>참고:</b> 이 모델은 정적(리깅 없음)이라 혀가 스스로 움직이지
-          않습니다. 구강을 비우는 작업과, 그 안에 움직이는 조음기관을 넣을지
-          여부는 화면 확인 후 결정합니다.
+        <div className="mt-1 rounded-xl bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-800">
+          <b>1차 리깅:</b> 본 가중치는 좌표 기반 자동 생성이라 경계가 어색할 수
+          있습니다. 슬라이더로 움직여 보시고 어느 부위를 더 다듬을지 알려주시면
+          가중치/본 위치를 조정합니다. 방향이 반대면(예: 턱이 위로) 알려주세요.
         </div>
       </div>
     </div>
