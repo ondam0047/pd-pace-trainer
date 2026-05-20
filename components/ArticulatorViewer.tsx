@@ -31,24 +31,60 @@ function shapeFromPoints(points: Pt[]): THREE.Shape {
 }
 
 function extrudeGeom(points: Pt[], depth: number, zCenter: number) {
+  const bevel = Math.min(0.09, depth * 0.35);
   const g = new THREE.ExtrudeGeometry(shapeFromPoints(points), {
-    depth,
-    bevelEnabled: false,
-    curveSegments: 12,
+    depth: depth - bevel * 2,
+    bevelEnabled: true,
+    bevelThickness: bevel,
+    bevelSize: bevel,
+    bevelSegments: 3,
+    curveSegments: 24,
   });
   g.translate(0, 0, zCenter - depth / 2);
+  g.computeVertexNormals();
   return g;
 }
 
-/* Flat cartoon cross-section region: translucent fill + bold 2D outline. */
+/* Apply a vertical (Y) color gradient as vertex colors for fleshy depth. */
+function applyVGradient(
+  geom: THREE.BufferGeometry,
+  yBottom: number,
+  yTop: number,
+  bottom: string,
+  top: string,
+) {
+  const cB = new THREE.Color(bottom);
+  const cT = new THREE.Color(top);
+  const pos = geom.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const tmp = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    const t = THREE.MathUtils.clamp((y - yBottom) / (yTop - yBottom), 0, 1);
+    tmp.copy(cB).lerp(cT, t);
+    colors[i * 3] = tmp.r;
+    colors[i * 3 + 1] = tmp.g;
+    colors[i * 3 + 2] = tmp.b;
+  }
+  geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+}
+
+type Grad = { yBottom: number; yTop: number; bottom: string; top: string };
+
+/* Anatomical cross-section region: beveled solid + PBR shading. */
 function Region({
   points,
   color,
-  depth = 0.5,
+  depth = 0.55,
   zCenter = 0,
   renderOrder = 0,
-  opacity = 0.5,
-  outline = true,
+  opacity = 1,
+  transparent = false,
+  roughness = 0.62,
+  emissive = "#000000",
+  emissiveIntensity = 0,
+  gradient,
+  outline = false,
   outlineColor = "#3f2a20",
   outlineWidth = 2,
 }: {
@@ -58,34 +94,42 @@ function Region({
   zCenter?: number;
   renderOrder?: number;
   opacity?: number;
+  transparent?: boolean;
+  roughness?: number;
+  emissive?: string;
+  emissiveIntensity?: number;
+  gradient?: Grad;
   outline?: boolean;
   outlineColor?: string;
   outlineWidth?: number;
 }) {
-  const geom = useMemo(
-    () => extrudeGeom(points, depth, zCenter),
-    [points, depth, zCenter],
-  );
+  const geom = useMemo(() => {
+    const g = extrudeGeom(points, depth, zCenter);
+    if (gradient)
+      applyVGradient(g, gradient.yBottom, gradient.yTop, gradient.bottom, gradient.top);
+    return g;
+  }, [points, depth, zCenter, gradient]);
   const linePts = useMemo(
     () =>
       [...points, points[0]].map(
         (p) =>
-          [p[0], p[1], zCenter + depth / 2 + 0.002] as [
-            number,
-            number,
-            number,
-          ],
+          [p[0], p[1], zCenter + depth / 2 + 0.01] as [number, number, number],
       ),
     [points, zCenter, depth],
   );
   return (
     <group>
-      <mesh geometry={geom} renderOrder={renderOrder}>
-        <meshBasicMaterial
+      <mesh geometry={geom} renderOrder={renderOrder} castShadow receiveShadow>
+        <meshStandardMaterial
           color={color}
-          transparent
+          vertexColors={!!gradient}
+          roughness={roughness}
+          metalness={0}
+          emissive={emissive}
+          emissiveIntensity={emissiveIntensity}
+          transparent={transparent}
           opacity={opacity}
-          depthWrite={false}
+          depthWrite={!transparent}
           side={THREE.DoubleSide}
         />
       </mesh>
@@ -95,7 +139,7 @@ function Region({
           color={outlineColor}
           lineWidth={outlineWidth}
           transparent
-          opacity={0.9}
+          opacity={0.5}
           renderOrder={renderOrder + 1}
         />
       )}
@@ -277,27 +321,33 @@ const MANDIBLE: Pt[] = [
 
 /* ---------- layer Z stagger (toward +Z = nearer camera) ---------- */
 const Z = {
-  nasalAir: 0.02,
-  oralAir: 0.04,
-  nasal: 0.06,
-  hardPalate: 0.1,
-  velum: 0.18,
-  tongue: 0.14,
-  teeth: 0.22,
-  lips: 0.26,
-  mandible: 0.2,
+  skin: -0.4,
+  nasalAir: -0.06,
+  oralAir: -0.04,
+  nasal: 0.0,
+  hardPalate: 0.06,
+  tongue: 0.1,
+  mandible: 0.04,
+  velum: 0.16,
+  teeth: 0.2,
+  lips: 0.24,
 };
 
-/* ---------- cartoon color palette ---------- */
+/* ---------- anatomical color palette ---------- */
 const C = {
-  skin: "#f6d3b0",
-  bone: "#f3e6c8",
-  nasal: "#f3a9b4",
-  velum: "#ef929e",
-  tongue: "#ee9d9d",
-  airway: "#7fd6e6",
-  lip: "#e06a62",
-  teeth: "#fdfaf2",
+  skin: "#e7b48f",
+  skinDeep: "#cf8f6b",
+  bone: "#efe1c2",
+  nasal: "#a8748a",
+  nasalDeep: "#7e5068",
+  velum: "#d98890",
+  tongue: "#cf7f7a",
+  tongueDeep: "#9c4a46",
+  tongueTip: "#e2a89e",
+  airway: "#bfe6ee",
+  lip: "#c75f57",
+  teeth: "#fbf6ea",
+  mucosaGlow: "#4a1e2a",
   outline: "#3f2a20",
 };
 
@@ -357,11 +407,13 @@ function Velum({ live }: { live: React.RefObject<Live> }) {
           color={C.velum}
           zCenter={Z.velum}
           renderOrder={20}
-          opacity={0.6}
+          roughness={0.5}
+          emissive={C.mucosaGlow}
+          emissiveIntensity={0.12}
         />
-        <mesh position={[-0.72, -0.34, Z.velum]} renderOrder={21}>
-          <sphereGeometry args={[0.07, 14, 14]} />
-          <meshBasicMaterial color={C.velum} transparent opacity={0.7} />
+        <mesh position={[-0.72, -0.34, Z.velum]} renderOrder={21} castShadow>
+          <sphereGeometry args={[0.075, 18, 18]} />
+          <meshStandardMaterial color="#cf6f6a" roughness={0.5} />
         </mesh>
       </group>
     </group>
@@ -389,17 +441,25 @@ function Tongue({ live }: { live: React.RefObject<Live> }) {
         points={TONGUE_BODY}
         color={C.tongue}
         zCenter={Z.tongue}
+        depth={0.7}
         renderOrder={16}
-        opacity={0.62}
+        roughness={0.5}
+        gradient={{
+          yBottom: -1.05,
+          yTop: 0.2,
+          bottom: C.tongueDeep,
+          top: C.tongueTip,
+        }}
       />
       <group position={[TONGUE_TIP_PIVOT[0], TONGUE_TIP_PIVOT[1], 0]}>
         <group ref={tipRef}>
           <Region
             points={TONGUE_TIP_REL}
-            color={C.tongue}
-            zCenter={Z.tongue + 0.005}
+            color={C.tongueTip}
+            zCenter={Z.tongue + 0.02}
+            depth={0.66}
             renderOrder={17}
-            opacity={0.62}
+            roughness={0.5}
           />
         </group>
       </group>
@@ -430,25 +490,24 @@ function LowerJaw({ live }: { live: React.RefObject<Live> }) {
             color={C.bone}
             zCenter={Z.mandible}
             renderOrder={14}
-            opacity={0.5}
+            roughness={0.7}
           />
           <Region
             points={LOWER_TEETH}
             color={C.teeth}
             zCenter={Z.teeth}
+            depth={0.6}
             renderOrder={22}
-            opacity={0.85}
-            outlineColor="#c9b59a"
-            outlineWidth={1.2}
+            roughness={0.35}
           />
           <group ref={lipRef}>
             <Region
               points={LOWER_LIP}
               color={C.lip}
               zCenter={Z.lips}
+              depth={0.62}
               renderOrder={24}
-              opacity={0.75}
-              outlineColor="#9a463d"
+              roughness={0.45}
             />
           </group>
         </group>
@@ -472,9 +531,9 @@ function UpperLip({ live }: { live: React.RefObject<Live> }) {
         points={UPPER_LIP}
         color={C.lip}
         zCenter={Z.lips}
+        depth={0.62}
         renderOrder={24}
-        opacity={0.75}
-        outlineColor="#9a463d"
+        roughness={0.45}
       />
     </group>
   );
@@ -813,31 +872,79 @@ const Scene = forwardRef<SceneHandle, { showSkin: boolean }>(function Scene(
 
   return (
     <group>
-      <Region points={NASAL_AIRWAY} color={C.airway} zCenter={Z.nasalAir} renderOrder={4} opacity={0.55} outline={false} />
-      <Region points={ORAL_AIRWAY} color={C.airway} zCenter={Z.oralAir} renderOrder={6} opacity={0.5} outlineColor="#5aa9bb" outlineWidth={1.2} />
-      <Region points={NASAL} color={C.nasal} zCenter={Z.nasal} renderOrder={8} opacity={0.5} />
-      <Region points={HARD_PALATE} color={C.bone} zCenter={Z.hardPalate} renderOrder={10} opacity={0.7} />
-
-      <Velum live={live} />
-      <Tongue live={live} />
-      <Region points={UPPER_TEETH} color={C.teeth} zCenter={Z.teeth} renderOrder={22} opacity={0.85} outlineColor="#c9b59a" outlineWidth={1.2} />
-      <UpperLip live={live} />
-      <LowerJaw live={live} />
-
-      <AirFlow live={live} />
-
+      {/* Skin / facial tissue — solid back layer of the cut */}
       {showSkin && (
         <Region
           points={SKIN}
           color={C.skin}
-          depth={1.2}
-          zCenter={0.12}
-          renderOrder={50}
-          opacity={0.12}
-          outlineColor="#c79a78"
-          outlineWidth={2}
+          depth={0.95}
+          zCenter={Z.skin}
+          renderOrder={0}
+          roughness={0.85}
+          gradient={{
+            yBottom: -2.8,
+            yTop: 3.0,
+            bottom: C.skinDeep,
+            top: C.skin,
+          }}
         />
       )}
+
+      {/* Nasal mucosa (turbinates) — purplish, faintly glowing */}
+      <Region
+        points={NASAL}
+        color={C.nasal}
+        zCenter={Z.nasal}
+        renderOrder={8}
+        roughness={0.55}
+        emissive={C.mucosaGlow}
+        emissiveIntensity={0.14}
+        gradient={{ yBottom: 0.55, yTop: 1.6, bottom: C.nasalDeep, top: C.nasal }}
+      />
+
+      {/* Hard palate (bone) */}
+      <Region
+        points={HARD_PALATE}
+        color={C.bone}
+        zCenter={Z.hardPalate}
+        renderOrder={10}
+        roughness={0.65}
+      />
+
+      <Velum live={live} />
+      <Tongue live={live} />
+      <Region
+        points={UPPER_TEETH}
+        color={C.teeth}
+        zCenter={Z.teeth}
+        depth={0.6}
+        renderOrder={22}
+        roughness={0.35}
+      />
+      <UpperLip live={live} />
+      <LowerJaw live={live} />
+
+      {/* Air space — subtle translucent tint behind the articulators */}
+      <Region
+        points={ORAL_AIRWAY}
+        color={C.airway}
+        zCenter={Z.oralAir}
+        depth={0.4}
+        renderOrder={4}
+        transparent
+        opacity={0.28}
+      />
+      <Region
+        points={NASAL_AIRWAY}
+        color={C.airway}
+        zCenter={Z.nasalAir}
+        depth={0.4}
+        renderOrder={4}
+        transparent
+        opacity={0.24}
+      />
+
+      <AirFlow live={live} />
     </group>
   );
 });
@@ -880,10 +987,32 @@ export default function ArticulatorViewer() {
 
   return (
     <div className="flex h-full min-h-[640px] w-full flex-col gap-3 lg:flex-row">
-      <div className="relative h-[560px] flex-1 overflow-hidden rounded-2xl bg-slate-50 shadow-inner lg:h-auto">
-        <Canvas camera={{ position: [0.6, -0.1, 8.2], fov: 34, near: 0.1, far: 100 }} dpr={[1, 2]}>
-          <color attach="background" args={["#eef4f7"]} />
-          <ambientLight intensity={1} />
+      <div
+        className="relative h-[560px] flex-1 overflow-hidden rounded-2xl shadow-inner lg:h-auto"
+        style={{
+          background:
+            "radial-gradient(circle at 50% 38%, #3b3540 0%, #211d26 55%, #14111a 100%)",
+        }}
+      >
+        <Canvas
+          camera={{ position: [0.6, -0.1, 8.2], fov: 34, near: 0.1, far: 100 }}
+          dpr={[1, 2]}
+          gl={{ alpha: true, antialias: true }}
+          shadows
+        >
+          <ambientLight intensity={0.5} />
+          <hemisphereLight args={["#fff1e8", "#2a2030", 0.55]} />
+          <directionalLight
+            position={[3.5, 4.5, 6]}
+            intensity={1.15}
+            color="#fff2e6"
+            castShadow
+            shadow-mapSize-width={1024}
+            shadow-mapSize-height={1024}
+          />
+          <directionalLight position={[-4.5, 1.5, 3]} intensity={0.45} color="#cfe0ff" />
+          <pointLight position={[1.8, 0.4, 3.5]} intensity={0.5} color="#ffd9c0" />
+          <pointLight position={[0.5, -0.5, -3]} intensity={0.35} color="#ffb59a" />
           <Scene ref={sceneRef} showSkin={showSkin} />
           <OrbitControls
             enablePan
