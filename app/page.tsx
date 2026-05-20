@@ -186,6 +186,18 @@ export default function HomePage() {
                 회기 요약 / 변화 / 비교 / CSV
               </div>
             </button>
+
+            <button
+              onClick={() => moveTo("/articulator")}
+              className="rounded-2xl border border-purple-200 bg-purple-50 px-5 py-5 text-left transition hover:shadow-sm"
+            >
+              <div className="text-lg font-semibold text-purple-800">
+                조음기관 3D
+              </div>
+              <div className="mt-2 text-sm text-purple-700">
+                입술·혀·구개 단면 3D 시각화
+              </div>
+            </button>
           </div>
         </section>
       </div>
