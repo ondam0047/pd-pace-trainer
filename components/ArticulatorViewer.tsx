@@ -12,47 +12,610 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import {
   GizmoHelper,
   GizmoViewport,
+  Line,
   OrbitControls,
   Stats,
 } from "@react-three/drei";
 import * as THREE from "three";
 
 /* ============================================================
- * Anatomical coordinate system
- *   +X = anterior (face front)
- *   -X = posterior (back of head / spine)
- *   +Y = superior (up)
- *   -Y = inferior (down)
- *   +Z = right side of head, -Z = left side
- *   The midsagittal plane is Z = 0.
+ * Coordinate system (midsagittal plane = Z 0)
+ *   +X anterior (face front, right in default view)
+ *   -X posterior (spine, left)
+ *   +Y superior (up)
+ *   +Z toward viewer (slab depth)
  * ============================================================ */
+
+type Pt = [number, number];
+
+/* ---------- geometry helpers ---------- */
+
+function shapeFromPoints(points: Pt[]): THREE.Shape {
+  const s = new THREE.Shape();
+  s.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) s.lineTo(points[i][0], points[i][1]);
+  s.closePath();
+  return s;
+}
+
+function extrudeGeom(points: Pt[], depth: number, zCenter: number) {
+  const g = new THREE.ExtrudeGeometry(shapeFromPoints(points), {
+    depth,
+    bevelEnabled: false,
+    curveSegments: 10,
+  });
+  g.translate(0, 0, zCenter - depth / 2);
+  g.computeVertexNormals();
+  return g;
+}
+
+/* A flat cross-section region: filled slab + 2D outline on the front face. */
+function Region({
+  points,
+  color,
+  depth = 0.45,
+  zCenter = 0,
+  renderOrder = 0,
+  opacity = 1,
+  transparent = false,
+  outline = true,
+  outlineColor = "#5b3a2e",
+  outlineWidth = 1.4,
+}: {
+  points: Pt[];
+  color: string;
+  depth?: number;
+  zCenter?: number;
+  renderOrder?: number;
+  opacity?: number;
+  transparent?: boolean;
+  outline?: boolean;
+  outlineColor?: string;
+  outlineWidth?: number;
+}) {
+  const geom = useMemo(
+    () => extrudeGeom(points, depth, zCenter),
+    [points, depth, zCenter],
+  );
+  const linePts = useMemo(
+    () =>
+      [...points, points[0]].map(
+        (p) => [p[0], p[1], zCenter + depth / 2 + 0.001] as [number, number, number],
+      ),
+    [points, zCenter, depth],
+  );
+  return (
+    <group>
+      <mesh geometry={geom} renderOrder={renderOrder}>
+        <meshStandardMaterial
+          color={color}
+          roughness={0.85}
+          metalness={0}
+          transparent={transparent}
+          opacity={opacity}
+          depthWrite={!transparent}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {outline && (
+        <Line
+          points={linePts}
+          color={outlineColor}
+          lineWidth={outlineWidth}
+          renderOrder={renderOrder + 1}
+        />
+      )}
+    </group>
+  );
+}
+
+/* ============================================================
+ * Static anatomical outlines (rest pose) — point arrays
+ * ============================================================ */
+
+// Skin / facial profile (transparent envelope)
+const SKIN: Pt[] = [
+  [-0.2, 3.0],
+  [0.9, 3.35],
+  [1.8, 3.1],
+  [2.3, 2.6],
+  [2.55, 2.05],
+  [2.45, 1.65],
+  [2.55, 1.3],
+  [3.05, 1.05],
+  [3.2, 0.7],
+  [3.0, 0.45],
+  [2.7, 0.32],
+  [2.62, 0.12],
+  [2.78, -0.05],
+  [2.74, -0.32],
+  [2.62, -0.5],
+  [2.74, -0.72],
+  [2.66, -1.0],
+  [2.4, -1.25],
+  [2.0, -1.45],
+  [1.45, -1.6],
+  [0.85, -1.7],
+  [0.5, -1.95],
+  [0.42, -2.45],
+  [0.42, -2.95],
+  [-1.05, -3.0],
+  [-1.5, -2.5],
+  [-1.62, -1.6],
+  [-1.66, -0.4],
+  [-1.78, 0.7],
+  [-1.8, 1.5],
+  [-1.66, 2.2],
+  [-1.4, 2.75],
+  [-0.85, 3.08],
+];
+
+// Cervical vertebrae blocks (posterior)
+const VERT_X0 = -1.5;
+const VERT_X1 = -0.95;
+const VERT_TOP = 1.55;
+const VERT_H = 0.52;
+const VERT_GAP = 0.16;
+const VERT_COUNT = 6;
+
+// Nasal cavity soft tissue (pink) with turbinate waves on the floor
+const NASAL: Pt[] = [
+  [2.35, 0.62],
+  [2.4, 1.0],
+  [1.65, 1.5],
+  [0.5, 1.6],
+  [-0.2, 1.25],
+  [-0.32, 0.78],
+  [-0.12, 0.6],
+  [0.1, 0.82],
+  [0.32, 0.58],
+  [0.58, 0.85],
+  [0.84, 0.58],
+  [1.12, 0.86],
+  [1.4, 0.58],
+  [1.7, 0.84],
+  [2.0, 0.6],
+  [2.18, 0.72],
+];
+
+// Hard palate (bone) — thin band
+const HARD_PALATE: Pt[] = [
+  [0.25, 0.4],
+  [1.0, 0.46],
+  [1.9, 0.4],
+  [2.12, 0.3],
+  [2.12, 0.5],
+  [1.9, 0.58],
+  [1.0, 0.64],
+  [0.25, 0.56],
+];
+
+// Oral + pharyngeal airway (cyan) at rest
+const ORAL_AIRWAY: Pt[] = [
+  [2.5, 0.05],
+  [1.95, 0.3],
+  [1.0, 0.4],
+  [0.25, 0.4],
+  [-0.32, 0.22],
+  [-0.55, -0.4],
+  [-0.6, -1.2],
+  [-0.52, -1.7],
+  [-0.32, -1.92],
+  [-0.08, -1.62],
+  [0.02, -1.0],
+  [0.12, -0.4],
+  [0.5, 0.04],
+  [1.1, 0.08],
+  [1.7, -0.02],
+  [2.18, -0.16],
+  [2.5, -0.12],
+];
+
+// Nasal airway strip (cyan) — velopharyngeal channel, revealed when velum lowers
+const NASAL_AIRWAY: Pt[] = [
+  [2.28, 0.6],
+  [2.3, 0.66],
+  [0.4, 0.62],
+  [-0.2, 0.52],
+  [-0.4, 0.2],
+  [-0.55, 0.2],
+  [-0.5, 0.58],
+  [-0.22, 0.74],
+  [0.4, 0.7],
+  [1.5, 0.66],
+  [2.2, 0.62],
+];
+
+// Tongue body (rest)
+const TONGUE_BODY: Pt[] = [
+  [-0.45, -1.0],
+  [-0.5, -0.3],
+  [-0.32, 0.12],
+  [0.2, 0.2],
+  [0.8, 0.18],
+  [1.25, 0.04],
+  [1.32, -0.5],
+  [1.0, -0.95],
+  [0.2, -1.05],
+];
+
+// Tongue tip (rest) — relative to pivot, drawn in tip group
+const TONGUE_TIP_PIVOT: Pt = [1.25, 0.0];
+const TONGUE_TIP_REL: Pt[] = [
+  [0.0, 0.06],
+  [0.62, 0.0],
+  [0.66, -0.16],
+  [0.0, -0.2],
+];
+
+// Soft palate (rest, raised) — relative to hinge
+const VELUM_HINGE: Pt = [0.25, 0.42];
+const VELUM_REL: Pt[] = [
+  [0.0, 0.04],
+  [-0.25, 0.0],
+  [-0.55, -0.12],
+  [-0.72, -0.34],
+  [-0.55, -0.26],
+  [-0.3, -0.14],
+  [-0.05, -0.04],
+];
+
+// Lips (rest)
+const UPPER_LIP: Pt[] = [
+  [2.3, 0.12],
+  [2.58, 0.14],
+  [2.64, -0.02],
+  [2.46, -0.06],
+  [2.3, 0.0],
+];
+const LOWER_LIP: Pt[] = [
+  [2.3, -0.34],
+  [2.5, -0.4],
+  [2.6, -0.56],
+  [2.42, -0.62],
+  [2.3, -0.46],
+];
+
+// Teeth
+const UPPER_TEETH: Pt[] = [
+  [2.0, 0.05],
+  [2.18, 0.05],
+  [2.18, -0.16],
+  [2.0, -0.16],
+];
+const LOWER_TEETH: Pt[] = [
+  [2.0, -0.28],
+  [2.18, -0.28],
+  [2.18, -0.5],
+  [2.0, -0.5],
+];
+
+// Epiglottis
+const EPIGLOTTIS: Pt[] = [
+  [-0.3, -1.72],
+  [-0.16, -1.4],
+  [-0.04, -1.5],
+  [-0.18, -1.78],
+];
+
+// Larynx cartilage
+const LARYNX: Pt[] = [
+  [-0.5, -1.85],
+  [-0.18, -1.85],
+  [-0.12, -2.45],
+  [-0.5, -2.45],
+];
+
+// Mandible (lower jaw bone) — part of lower-jaw group
+const MANDIBLE: Pt[] = [
+  [2.35, -0.6],
+  [2.5, -0.75],
+  [2.3, -1.15],
+  [1.6, -1.35],
+  [0.7, -1.4],
+  [0.55, -1.15],
+  [1.4, -0.9],
+  [2.0, -0.78],
+];
+
+/* ---------- layer Z stagger (toward +Z = nearer default camera) ---------- */
+const Z = {
+  skin: -0.05,
+  vertebrae: 0.0,
+  nasalAir: 0.02,
+  nasal: 0.05,
+  oralAir: 0.04,
+  hardPalate: 0.08,
+  velum: 0.16,
+  tongue: 0.12,
+  larynx: 0.1,
+  epiglottis: 0.14,
+  teeth: 0.2,
+  lips: 0.24,
+  mandible: 0.18,
+};
+
+/* ---------- colors (matched to reference diagram) ---------- */
+const C = {
+  skin: "#e9c6a6",
+  bone: "#efe1c6",
+  vertebra: "#ecdcbe",
+  nasal: "#e7a0a6",
+  velum: "#e58f97",
+  tongue: "#e09a9a",
+  airway: "#84d6e2",
+  lip: "#cf6258",
+  teeth: "#fbf7ee",
+  larynx: "#f0e2c8",
+  vocalFold: "#ffffff",
+  outline: "#6b4636",
+};
+
+/* ============================================================
+ * Movable groups
+ * ============================================================ */
+
+function relTo(points: Pt[], pivot: Pt): Pt[] {
+  return points.map(([x, y]) => [x - pivot[0], y - pivot[1]]);
+}
+
+function Velum({ lower }: { lower: number }) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame(() => {
+    if (ref.current) ref.current.rotation.z = -lower * THREE.MathUtils.degToRad(48);
+  });
+  return (
+    <group position={[VELUM_HINGE[0], VELUM_HINGE[1], 0]}>
+      <group ref={ref}>
+        <Region
+          points={VELUM_REL}
+          color={C.velum}
+          zCenter={Z.velum}
+          renderOrder={20}
+          outlineColor={C.outline}
+        />
+        {/* Uvula tip */}
+        <mesh position={[-0.72, -0.34, Z.velum]} renderOrder={21}>
+          <sphereGeometry args={[0.07, 14, 14]} />
+          <meshStandardMaterial color="#d2685a" roughness={0.5} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+function Tongue({
+  bodyX,
+  bodyY,
+  tipY,
+  tipX,
+}: {
+  bodyX: number;
+  bodyY: number;
+  tipY: number;
+  tipX: number;
+}) {
+  const bodyRef = useRef<THREE.Group>(null);
+  const tipRef = useRef<THREE.Group>(null);
+  useFrame(() => {
+    if (bodyRef.current) {
+      bodyRef.current.position.x = bodyX * 0.45;
+      bodyRef.current.position.y = bodyY * 0.5;
+    }
+    if (tipRef.current) {
+      tipRef.current.rotation.z = tipY * 1.3;
+      tipRef.current.position.x = tipX * 0.3;
+    }
+  });
+  return (
+    <group ref={bodyRef}>
+      <Region
+        points={TONGUE_BODY}
+        color={C.tongue}
+        zCenter={Z.tongue}
+        renderOrder={16}
+        outlineColor={C.outline}
+      />
+      <group position={[TONGUE_TIP_PIVOT[0], TONGUE_TIP_PIVOT[1], 0]}>
+        <group ref={tipRef}>
+          <Region
+            points={TONGUE_TIP_REL}
+            color={C.tongue}
+            zCenter={Z.tongue + 0.005}
+            renderOrder={17}
+            outlineColor={C.outline}
+          />
+        </group>
+      </group>
+    </group>
+  );
+}
+
+function LowerJaw({
+  jawOpen,
+  lipClosure,
+  lipProtrusion,
+}: {
+  jawOpen: number;
+  lipClosure: number;
+  lipProtrusion: number;
+}) {
+  const jawRef = useRef<THREE.Group>(null);
+  const lipRef = useRef<THREE.Group>(null);
+  const pivot: Pt = [-1.4, 0.4];
+  useFrame(() => {
+    if (jawRef.current)
+      jawRef.current.rotation.z = -jawOpen * THREE.MathUtils.degToRad(16);
+    if (lipRef.current) {
+      lipRef.current.position.y = lipClosure * 0.16;
+      lipRef.current.position.x = lipProtrusion * 0.16;
+    }
+  });
+  return (
+    <group position={[pivot[0], pivot[1], 0]}>
+      <group ref={jawRef}>
+        <group position={[-pivot[0], -pivot[1], 0]}>
+          <Region
+            points={MANDIBLE}
+            color={C.bone}
+            zCenter={Z.mandible}
+            renderOrder={14}
+            outlineColor={C.outline}
+          />
+          <Region
+            points={LOWER_TEETH}
+            color={C.teeth}
+            zCenter={Z.teeth}
+            renderOrder={22}
+            outlineColor="#cbb9a0"
+            outlineWidth={1}
+          />
+          <group ref={lipRef}>
+            <Region
+              points={LOWER_LIP}
+              color={C.lip}
+              zCenter={Z.lips}
+              renderOrder={24}
+              outlineColor="#8a3d36"
+            />
+          </group>
+        </group>
+      </group>
+    </group>
+  );
+}
+
+function UpperLip({
+  lipClosure,
+  lipProtrusion,
+}: {
+  lipClosure: number;
+  lipProtrusion: number;
+}) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame(() => {
+    if (ref.current) {
+      ref.current.position.y = -lipClosure * 0.1;
+      ref.current.position.x = lipProtrusion * 0.16;
+    }
+  });
+  return (
+    <group ref={ref}>
+      <Region
+        points={UPPER_LIP}
+        color={C.lip}
+        zCenter={Z.lips}
+        renderOrder={24}
+        outlineColor="#8a3d36"
+      />
+    </group>
+  );
+}
+
+/* ============================================================
+ * Static pieces
+ * ============================================================ */
+
+function Vertebrae() {
+  const items = useMemo(() => {
+    const arr: Pt[][] = [];
+    for (let i = 0; i < VERT_COUNT; i++) {
+      const top = VERT_TOP - i * (VERT_H + VERT_GAP);
+      const bot = top - VERT_H;
+      arr.push([
+        [VERT_X0, top],
+        [VERT_X1, top],
+        [VERT_X1, bot],
+        [VERT_X0, bot],
+      ]);
+    }
+    return arr;
+  }, []);
+  return (
+    <group>
+      {items.map((pts, i) => (
+        <Region
+          key={i}
+          points={pts}
+          color={C.vertebra}
+          zCenter={Z.vertebrae}
+          renderOrder={2}
+          outlineColor={C.outline}
+          outlineWidth={1.1}
+        />
+      ))}
+    </group>
+  );
+}
+
+function FricationStream({ amount }: { amount: number }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const particles = useMemo(() => {
+    const arr: { phase: number; r: number; y: number }[] = [];
+    for (let i = 0; i < 14; i++) {
+      arr.push({
+        phase: Math.random() * Math.PI * 2,
+        r: 0.03 + Math.random() * 0.04,
+        y: (Math.random() - 0.5) * 0.05,
+      });
+    }
+    return arr;
+  }, []);
+  const t = useRef(0);
+  useFrame((_, dt) => {
+    t.current += dt;
+    if (groupRef.current) {
+      groupRef.current.visible = amount > 0.05;
+      groupRef.current.scale.setScalar(0.5 + amount * 0.8);
+    }
+  });
+  return (
+    <group ref={groupRef} position={[2.55, -0.1, Z.lips + 0.05]}>
+      {particles.map((p, i) => {
+        const tt = (t.current * 1.6 + p.phase) % 1;
+        const x = tt * 0.6;
+        const y = p.y + Math.sin(t.current * 5 + p.phase) * 0.03;
+        return (
+          <mesh key={i} position={[x, y, 0]}>
+            <sphereGeometry args={[p.r, 8, 8]} />
+            <meshBasicMaterial
+              color="#5fc4e8"
+              transparent
+              opacity={Math.max(0, amount * (1 - tt))}
+            />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}
 
 /* ============================================================
  * Pose model
  * ============================================================ */
 
 type Pose = {
-  jawOpen: number; // 0 (closed) .. 1 (wide open)
-  lipClosure: number; // 0 (open) .. 1 (closed/pressed)
-  lipProtrusion: number; // 0 .. 1 (rounded forward)
-  tongueTipY: number; // displacement on Y axis
-  tongueTipX: number; // displacement on X axis (anterior +)
+  jawOpen: number;
+  lipClosure: number;
+  lipProtrusion: number;
+  tongueTipY: number;
+  tongueTipX: number;
   tongueBodyY: number;
   tongueBodyX: number;
-  velumLower: number; // 0 = raised (oral), 1 = lowered (nasal)
-  frication: number; // 0..1 turbulence visualization
+  velumLower: number;
+  frication: number;
 };
 
 const IDLE_POSE: Pose = {
-  jawOpen: 0.15,
-  lipClosure: 0.0,
-  lipProtrusion: 0.0,
-  tongueTipY: -0.1,
-  tongueTipX: 0.0,
-  tongueBodyY: 0.0,
-  tongueBodyX: 0.0,
-  velumLower: 0.0,
-  frication: 0.0,
+  jawOpen: 0.12,
+  lipClosure: 0,
+  lipProtrusion: 0,
+  tongueTipY: 0,
+  tongueTipX: 0,
+  tongueBodyY: 0,
+  tongueBodyX: 0,
+  velumLower: 0,
+  frication: 0,
 };
 
 type PoseKey =
@@ -69,52 +632,37 @@ type PoseKey =
   | "glottal";
 
 const POSES: Record<PoseKey, { label: string; sub: string; pose: Pose }> = {
-  idle: {
-    label: "Idle",
-    sub: "휴지 자세",
-    pose: IDLE_POSE,
-  },
+  idle: { label: "Idle", sub: "휴지 자세", pose: IDLE_POSE },
   bilabial_stop: {
     label: "ㅂ · ㅍ · ㅃ",
     sub: "양순 파열음",
-    pose: {
-      ...IDLE_POSE,
-      jawOpen: 0.04,
-      lipClosure: 1.0,
-      lipProtrusion: 0.15,
-    },
+    pose: { ...IDLE_POSE, jawOpen: 0.03, lipClosure: 1, lipProtrusion: 0.1 },
   },
   bilabial_nasal: {
     label: "ㅁ",
-    sub: "양순 비음 (연구개 하강)",
+    sub: "양순 비음",
     pose: {
       ...IDLE_POSE,
-      jawOpen: 0.06,
-      lipClosure: 1.0,
-      lipProtrusion: 0.1,
-      velumLower: 1.0,
+      jawOpen: 0.04,
+      lipClosure: 1,
+      lipProtrusion: 0.06,
+      velumLower: 1,
     },
   },
   alveolar_stop: {
     label: "ㄷ · ㅌ · ㄸ",
     sub: "치조 파열음",
-    pose: {
-      ...IDLE_POSE,
-      jawOpen: 0.1,
-      tongueTipY: 0.55,
-      tongueTipX: 0.1,
-      tongueBodyY: 0.05,
-    },
+    pose: { ...IDLE_POSE, jawOpen: 0.1, tongueTipY: 0.5, tongueTipX: 0.6 },
   },
   alveolar_nasal: {
     label: "ㄴ",
-    sub: "치조 비음 (연구개 하강)",
+    sub: "치조 비음",
     pose: {
       ...IDLE_POSE,
-      jawOpen: 0.12,
-      tongueTipY: 0.55,
-      tongueTipX: 0.1,
-      velumLower: 1.0,
+      jawOpen: 0.1,
+      tongueTipY: 0.5,
+      tongueTipX: 0.6,
+      velumLower: 1,
     },
   },
   alveolar_fric: {
@@ -122,10 +670,10 @@ const POSES: Record<PoseKey, { label: string; sub: string; pose: Pose }> = {
     sub: "치조 마찰음",
     pose: {
       ...IDLE_POSE,
-      jawOpen: 0.18,
-      tongueTipY: 0.38,
-      tongueTipX: 0.12,
-      frication: 1.0,
+      jawOpen: 0.16,
+      tongueTipY: 0.34,
+      tongueTipX: 0.6,
+      frication: 1,
     },
   },
   alveopalatal: {
@@ -133,749 +681,54 @@ const POSES: Record<PoseKey, { label: string; sub: string; pose: Pose }> = {
     sub: "치조경구개 파찰음",
     pose: {
       ...IDLE_POSE,
-      jawOpen: 0.15,
-      tongueTipY: 0.4,
-      tongueTipX: 0.0,
-      tongueBodyY: 0.25,
+      jawOpen: 0.13,
+      tongueTipY: 0.28,
+      tongueBodyY: 0.4,
       frication: 0.6,
     },
   },
   velar_stop: {
     label: "ㄱ · ㅋ · ㄲ",
     sub: "연구개 파열음",
-    pose: {
-      ...IDLE_POSE,
-      jawOpen: 0.15,
-      tongueBodyY: 0.5,
-      tongueBodyX: -0.3,
-    },
+    pose: { ...IDLE_POSE, jawOpen: 0.14, tongueBodyY: 0.78, tongueBodyX: -0.5 },
   },
   velar_nasal: {
     label: "ㅇ (받침)",
-    sub: "연구개 비음 (연구개 하강)",
+    sub: "연구개 비음",
     pose: {
       ...IDLE_POSE,
-      jawOpen: 0.18,
-      tongueBodyY: 0.45,
-      tongueBodyX: -0.3,
-      velumLower: 1.0,
+      jawOpen: 0.16,
+      tongueBodyY: 0.7,
+      tongueBodyX: -0.5,
+      velumLower: 1,
     },
   },
   liquid: {
     label: "ㄹ",
     sub: "치조 탄설/설측음",
-    pose: {
-      ...IDLE_POSE,
-      jawOpen: 0.18,
-      tongueTipY: 0.42,
-      tongueTipX: 0.0,
-      tongueBodyY: 0.05,
-    },
+    pose: { ...IDLE_POSE, jawOpen: 0.16, tongueTipY: 0.4, tongueTipX: 0.45 },
   },
   glottal: {
     label: "ㅎ",
     sub: "성문 마찰음",
-    pose: {
-      ...IDLE_POSE,
-      jawOpen: 0.22,
-      frication: 0.5,
-    },
+    pose: { ...IDLE_POSE, jawOpen: 0.2, frication: 0.5 },
   },
 };
 
-/* ============================================================
- * Helpers
- * ============================================================ */
-
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-const smoothstep = (x: number, e0: number, e1: number) => {
-  const t = THREE.MathUtils.clamp((x - e0) / (e1 - e0), 0, 1);
-  return t * t * (3 - 2 * t);
-};
 
 /* ============================================================
- * Head silhouette (midsagittal profile, extruded)
- * Profile coords are in the X-Y plane (X = anterior, Y = up).
- * Numbers chosen to match a typical lateral skull/face contour.
- * ============================================================ */
-function buildHeadSagittalShape(): THREE.Shape {
-  const s = new THREE.Shape();
-  // start at top of head, traverse clockwise looking from +Z
-  s.moveTo(-0.2, 3.0); // top of head (back-side)
-  s.bezierCurveTo(0.8, 3.35, 1.7, 3.15, 2.15, 2.7); // crown to front
-  s.bezierCurveTo(2.55, 2.35, 2.55, 1.95, 2.4, 1.6); // forehead
-  s.bezierCurveTo(2.3, 1.4, 2.45, 1.25, 2.55, 1.05); // brow → nasion
-  s.bezierCurveTo(2.95, 0.95, 3.15, 0.7, 3.05, 0.45); // nose bridge → tip
-  s.bezierCurveTo(2.95, 0.3, 2.7, 0.2, 2.55, 0.15); // under nose
-  s.lineTo(2.55, -0.05); // philtrum
-  s.bezierCurveTo(2.7, -0.1, 2.85, -0.2, 2.75, -0.35); // upper lip
-  s.bezierCurveTo(2.65, -0.45, 2.55, -0.55, 2.55, -0.65); // between lips
-  s.bezierCurveTo(2.6, -0.75, 2.75, -0.85, 2.7, -1.0); // lower lip
-  s.bezierCurveTo(2.5, -1.15, 2.25, -1.25, 2.0, -1.4); // chin curve
-  s.bezierCurveTo(1.55, -1.55, 1.1, -1.6, 0.7, -1.65); // chin → submental
-  s.bezierCurveTo(0.4, -1.7, 0.2, -1.85, 0.1, -2.1); // throat front
-  s.lineTo(0.1, -2.7); // lower neck front
-  s.lineTo(-1.0, -2.85); // bottom of cut
-  s.lineTo(-1.4, -2.4); // back-lower neck
-  s.bezierCurveTo(-1.55, -1.8, -1.55, -1.0, -1.6, -0.2); // back of neck
-  s.bezierCurveTo(-1.7, 0.6, -1.8, 1.4, -1.7, 2.1); // back of head
-  s.bezierCurveTo(-1.5, 2.7, -0.95, 3.05, -0.2, 3.0); // close to top
-  return s;
-}
-
-function HeadSilhouette({
-  visible,
-  crossSection,
-}: {
-  visible: boolean;
-  crossSection: boolean;
-}) {
-  const geom = useMemo(() => {
-    const shape = buildHeadSagittalShape();
-    const depth = 3.6;
-    const g = new THREE.ExtrudeGeometry(shape, {
-      depth,
-      bevelEnabled: true,
-      bevelThickness: 0.18,
-      bevelSize: 0.16,
-      bevelSegments: 4,
-      curveSegments: 48,
-    });
-    // Extrusion is along +Z by default; center it
-    g.translate(0, 0, -depth / 2);
-    g.computeVertexNormals();
-    return g;
-  }, []);
-
-  const halfGeom = useMemo(() => {
-    const shape = buildHeadSagittalShape();
-    const depth = 1.8;
-    const g = new THREE.ExtrudeGeometry(shape, {
-      depth,
-      bevelEnabled: true,
-      bevelThickness: 0.12,
-      bevelSize: 0.12,
-      bevelSegments: 3,
-      curveSegments: 48,
-    });
-    // Only the right half (Z >= 0)
-    g.computeVertexNormals();
-    return g;
-  }, []);
-
-  if (!visible) return null;
-
-  if (crossSection) {
-    return (
-      <mesh geometry={halfGeom}>
-        <meshStandardMaterial
-          color="#f6cdb5"
-          roughness={0.85}
-          metalness={0.0}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-    );
-  }
-
-  return (
-    <mesh geometry={geom}>
-      <meshPhysicalMaterial
-        color="#f5c7ad"
-        roughness={0.7}
-        metalness={0}
-        transmission={0.6}
-        thickness={1.2}
-        transparent
-        opacity={0.16}
-        depthWrite={false}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
-  );
-}
-
-/* ============================================================
- * Hard palate — domed roof of the oral cavity
- * Built as a flexible plane that arches in both AP and lateral.
- * ============================================================ */
-function buildArchPlane({
-  xFront,
-  xBack,
-  width,
-  archHeight,
-  baseY,
-  segments = 28,
-  depthSegments = 16,
-  archProfile = (t: number) => Math.sin(Math.PI * t),
-}: {
-  xFront: number;
-  xBack: number;
-  width: number;
-  archHeight: number;
-  baseY: number;
-  segments?: number;
-  depthSegments?: number;
-  archProfile?: (t: number) => number;
-}): THREE.BufferGeometry {
-  const g = new THREE.PlaneGeometry(
-    xFront - xBack,
-    width,
-    depthSegments,
-    segments,
-  );
-  // Lay in XZ plane (was XY), so lateral (width) → Z, AP → X
-  g.rotateX(-Math.PI / 2);
-  // PlaneGeometry now has y=0; reposition along X (AP)
-  g.translate((xFront + xBack) / 2, baseY, 0);
-
-  const pos = g.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const z = pos.getZ(i);
-    const tAP = (x - xBack) / (xFront - xBack); // 0 back, 1 front
-    const fbFalloff = archProfile(tAP);
-    const w = width / 2;
-    const lateral = 1 - Math.pow(z / w, 2);
-    const dy = archHeight * lateral * fbFalloff;
-    pos.setY(i, baseY + dy);
-  }
-  g.computeVertexNormals();
-  return g;
-}
-
-function HardPalate() {
-  const geom = useMemo(
-    () =>
-      buildArchPlane({
-        xBack: 0.1,
-        xFront: 2.2,
-        width: 1.25,
-        archHeight: 0.22,
-        baseY: 0.42,
-        segments: 32,
-        depthSegments: 16,
-        archProfile: (t) => Math.sin(Math.PI * t) * (0.6 + 0.4 * t), // higher in front
-      }),
-    [],
-  );
-  // Upper teeth wrap (alveolar ridge thick lip)
-  return (
-    <group>
-      <mesh geometry={geom}>
-        <meshStandardMaterial
-          color="#ffd1b9"
-          roughness={0.6}
-          metalness={0}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-      {/* Alveolar ridge — small bump just behind upper teeth */}
-      <mesh position={[1.95, 0.32, 0]}>
-        <torusGeometry args={[0.45, 0.05, 10, 24, Math.PI]} />
-        <meshStandardMaterial color="#f2b89c" roughness={0.6} />
-      </mesh>
-    </group>
-  );
-}
-
-function SoftPalate({ lower }: { lower: number }) {
-  const groupRef = useRef<THREE.Group>(null);
-  const palateGeom = useMemo(
-    () =>
-      buildArchPlane({
-        xBack: -0.75,
-        xFront: 0.1,
-        width: 1.05,
-        archHeight: 0.16,
-        baseY: 0,
-        segments: 18,
-        depthSegments: 12,
-        archProfile: (t) => Math.sin(Math.PI * t),
-      }),
-    [],
-  );
-
-  useFrame(() => {
-    if (!groupRef.current) return;
-    groupRef.current.rotation.z =
-      lower * THREE.MathUtils.degToRad(38); // swing down at hinge
-  });
-
-  return (
-    // Pivot at hinge = front of soft palate (junction with hard palate)
-    <group position={[0.1, 0.42, 0]}>
-      <group ref={groupRef}>
-        <mesh geometry={palateGeom}>
-          <meshStandardMaterial
-            color="#f29a82"
-            roughness={0.55}
-            metalness={0}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-        {/* Uvula */}
-        <mesh position={[-0.78, -0.12, 0]}>
-          <sphereGeometry args={[0.08, 16, 16]} />
-          <meshStandardMaterial color="#d96a55" roughness={0.5} />
-        </mesh>
-      </group>
-    </group>
-  );
-}
-
-/* ============================================================
- * Nasal cavity — turbinates and septum, above the hard palate
- * ============================================================ */
-function NasalCavity() {
-  return (
-    <group>
-      {/* Floor (top of hard palate, viewed from above) — implicit, palate top */}
-      {/* Turbinates: inferior, middle, superior on the lateral wall */}
-      {/* Inferior turbinate (largest, lower-front) */}
-      <mesh position={[1.55, 0.9, 0]} rotation={[0, 0, -0.1]}>
-        <sphereGeometry args={[0.32, 20, 14]} />
-        <meshStandardMaterial color="#e89685" roughness={0.6} />
-      </mesh>
-      {/* Middle turbinate */}
-      <mesh position={[1.0, 1.2, 0]} rotation={[0, 0, -0.15]}>
-        <sphereGeometry args={[0.27, 18, 12]} />
-        <meshStandardMaterial color="#e08573" roughness={0.6} />
-      </mesh>
-      {/* Superior turbinate */}
-      <mesh position={[0.45, 1.45, 0]} rotation={[0, 0, -0.2]}>
-        <sphereGeometry args={[0.18, 16, 10]} />
-        <meshStandardMaterial color="#d77a69" roughness={0.6} />
-      </mesh>
-      {/* External nose cartilage (visible inside nostril) */}
-      <mesh position={[2.6, 0.6, 0]}>
-        <sphereGeometry args={[0.16, 16, 12]} />
-        <meshStandardMaterial color="#ffd5be" roughness={0.5} />
-      </mesh>
-    </group>
-  );
-}
-
-/* ============================================================
- * Pharyngeal back wall — curves from soft-palate level down behind tongue
- * ============================================================ */
-function PharyngealWall() {
-  const geom = useMemo(() => {
-    // Build a curved sheet at x ≈ -0.7 spanning vertically
-    const segments = 20;
-    const lat = 12;
-    const g = new THREE.PlaneGeometry(3.5, 1.2, segments, lat);
-    // Lay vertically: rotate so plane normal is +X
-    g.rotateY(Math.PI / 2);
-    g.translate(-0.7, -0.4, 0);
-    const pos = g.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      const y = pos.getY(i);
-      const z = pos.getZ(i);
-      // gently curve forward at top and bottom
-      const ty = (y + 2.1) / 3.5; // 0..1 along vertical
-      const curve = Math.sin(ty * Math.PI) * 0.0; // keep mostly flat
-      const lateralCurve = -Math.pow(z / 0.6, 2) * 0.18; // recede laterally
-      pos.setX(i, -0.7 + curve + lateralCurve);
-    }
-    g.computeVertexNormals();
-    return g;
-  }, []);
-
-  return (
-    <mesh geometry={geom}>
-      <meshStandardMaterial
-        color="#cf6a5a"
-        roughness={0.6}
-        metalness={0}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
-  );
-}
-
-/* ============================================================
- * Tongue — anatomically-shaped 3D mesh
- * Built as a swept tube along the AP axis, varying width/height,
- * with displacement applied for tip & body control points.
- * ============================================================ */
-function Tongue({
-  tipY,
-  tipX,
-  bodyY,
-  bodyX,
-}: {
-  tipY: number;
-  tipX: number;
-  bodyY: number;
-  bodyX: number;
-}) {
-  // Pre-build a base geometry (unit sphere) — we deform it each frame
-  const geom = useMemo(() => new THREE.SphereGeometry(1, 56, 36), []);
-
-  // Static reference: store the original (theta, phi) of each vertex.
-  // Sphere geometry parameterized as: phi (0..π, top->bottom), theta (0..2π around).
-  const refs = useMemo(() => {
-    const pos = geom.attributes.position;
-    const arr = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const y = pos.getY(i);
-      const z = pos.getZ(i);
-      // Compute phi & theta from sphere coords
-      const phi = Math.acos(THREE.MathUtils.clamp(y, -1, 1));
-      const theta = Math.atan2(z, x);
-      arr[i * 3] = phi;
-      arr[i * 3 + 1] = theta;
-      arr[i * 3 + 2] = 0;
-    }
-    return arr;
-  }, [geom]);
-
-  useFrame(() => {
-    const pos = geom.attributes.position;
-
-    // Base tongue shape (along AP axis, X):
-    // Root at x ≈ -0.7, body at x ≈ 0.4, tip at x ≈ 1.7
-    // Top dorsum height profile, bottom floor profile, width profile.
-    const xRoot = -0.6;
-    const xTip = 1.75;
-
-    for (let i = 0; i < pos.count; i++) {
-      const phi = refs[i * 3];
-      const theta = refs[i * 3 + 1];
-
-      // Map phi (0..π) to AP position u (0..1).
-      // phi=0 (top pole) → root; phi=π (bottom pole) → tip
-      const u = phi / Math.PI;
-      const ap = lerp(xRoot, xTip, u);
-
-      // Width (Z) along AP — broadest at body, narrower at root and tip
-      const width =
-        0.25 + 0.55 * Math.sin(Math.PI * u) * (0.7 + 0.3 * Math.sin(u * Math.PI));
-
-      // Vertical extent — top dorsum height vs. mouth-floor height
-      const topY = -0.05 - 0.35 * Math.pow(1 - Math.abs(u - 0.45) / 0.5, 2);
-      // dorsum: peaks around u=0.45 → topY higher (less negative)
-      const dorsumPeak = 0.05; // peak Y of dorsum at rest
-      const topYRest =
-        dorsumPeak - 0.55 * Math.pow(Math.abs(u - 0.45) * 2.0, 1.6);
-
-      const floorY = -1.05 + 0.18 * Math.sin(Math.PI * u);
-      const centerY = (topYRest + floorY) / 2;
-      const semiH = (topYRest - floorY) / 2;
-
-      // Cross-section parameter goes 0..2π around AP axis.
-      // We use theta from the source sphere as that parameter.
-      // Map vertex to ellipse cross-section.
-      const cy = centerY + semiH * Math.cos(theta);
-      const cz = width * Math.sin(theta);
-
-      // Apply pose displacements with smooth weights along AP axis
-      const wTip = smoothstep(u, 0.62, 1.0);
-      const wBody = smoothstep(u, 0.15, 0.65) * (1 - wTip);
-
-      const dx = wTip * tipX * 0.4 + wBody * bodyX * 0.6;
-      const dy = wTip * tipY * 0.55 + wBody * bodyY * 0.55;
-
-      pos.setXYZ(i, ap + dx, cy + dy, cz);
-      // unused: topY (kept for future)
-      void topY;
-      void width;
-    }
-    pos.needsUpdate = true;
-    geom.computeVertexNormals();
-  });
-
-  return (
-    <mesh geometry={geom}>
-      <meshStandardMaterial
-        color="#d57878"
-        roughness={0.55}
-        metalness={0}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
-  );
-}
-
-/* ============================================================
- * Teeth + Mandible
- * ============================================================ */
-function ToothRow({
-  count = 12,
-  spread = 1.1,
-  archDepth = 0.85,
-  toothSize = [0.09, 0.18, 0.1] as [number, number, number],
-}) {
-  const teeth = useMemo(() => {
-    const arr: { x: number; z: number; rotY: number }[] = [];
-    for (let i = 0; i < count; i++) {
-      const t = i / (count - 1);
-      const ang = lerp(Math.PI * 0.5, -Math.PI * 0.5, t);
-      const x = Math.sin(ang) * archDepth + 1.5;
-      const z = Math.cos(ang) * (spread / 2);
-      arr.push({ x, z, rotY: -ang });
-    }
-    return arr;
-  }, [count, spread, archDepth]);
-
-  return (
-    <group>
-      {teeth.map((t, i) => (
-        <mesh
-          key={i}
-          position={[t.x, 0, t.z]}
-          rotation={[0, t.rotY, 0]}
-        >
-          <boxGeometry args={toothSize} />
-          <meshStandardMaterial color="#fbf6ec" roughness={0.3} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-function UpperJaw() {
-  return (
-    <group position={[0, 0.22, 0]}>
-      <ToothRow />
-    </group>
-  );
-}
-
-function LowerJawAndLip({
-  jawOpen,
-  lipClosure,
-  lipProtrusion,
-}: {
-  jawOpen: number;
-  lipClosure: number;
-  lipProtrusion: number;
-}) {
-  const groupRef = useRef<THREE.Group>(null);
-  const lipRef = useRef<THREE.Mesh>(null);
-
-  useFrame(() => {
-    if (groupRef.current) {
-      const maxAngle = THREE.MathUtils.degToRad(20);
-      groupRef.current.rotation.z = -jawOpen * maxAngle;
-    }
-    if (lipRef.current) {
-      const baseY = -0.85;
-      lipRef.current.position.y = baseY + lipClosure * 0.2;
-      lipRef.current.position.x = 2.55 + lipProtrusion * 0.15;
-      lipRef.current.scale.z = 1 - lipProtrusion * 0.25;
-    }
-  });
-
-  return (
-    // Pivot at TMJ ≈ behind ear (-1.5, 0.5, 0)
-    <group ref={groupRef} position={[-1.5, 0.5, 0]}>
-      <group position={[1.5, -0.5, 0]}>
-        {/* Lower teeth */}
-        <group position={[0, -0.45, 0]}>
-          <ToothRow />
-        </group>
-        {/* Mandible body — curved arc on the bottom */}
-        <mesh position={[1.1, -0.85, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.85, 0.1, 14, 32, Math.PI]} />
-          <meshStandardMaterial color="#f6dfca" roughness={0.7} />
-        </mesh>
-        {/* Lower lip — torus segment in front of lower teeth */}
-        <mesh
-          ref={lipRef}
-          position={[2.55, -0.85, 0]}
-          rotation={[Math.PI / 2, 0, Math.PI]}
-        >
-          <torusGeometry args={[0.32, 0.08, 14, 28, Math.PI]} />
-          <meshStandardMaterial color="#c45a55" roughness={0.45} />
-        </mesh>
-      </group>
-    </group>
-  );
-}
-
-function UpperLip({
-  lipClosure,
-  lipProtrusion,
-}: {
-  lipClosure: number;
-  lipProtrusion: number;
-}) {
-  const ref = useRef<THREE.Mesh>(null);
-  useFrame(() => {
-    if (!ref.current) return;
-    ref.current.position.y = -0.05 - lipClosure * 0.07;
-    ref.current.position.x = 2.55 + lipProtrusion * 0.15;
-    ref.current.scale.z = 1 - lipProtrusion * 0.25;
-  });
-  return (
-    <mesh ref={ref} position={[2.55, -0.05, 0]} rotation={[Math.PI / 2, 0, 0]}>
-      <torusGeometry args={[0.32, 0.08, 14, 28, Math.PI]} />
-      <meshStandardMaterial color="#c45a55" roughness={0.45} />
-    </mesh>
-  );
-}
-
-/* ============================================================
- * Epiglottis + Larynx + Vocal folds
- * ============================================================ */
-function Epiglottis() {
-  // Leaf-shaped flap above the larynx
-  const geom = useMemo(() => {
-    const shape = new THREE.Shape();
-    shape.moveTo(0, 0);
-    shape.bezierCurveTo(-0.05, 0.25, 0.1, 0.5, 0.0, 0.65);
-    shape.bezierCurveTo(-0.18, 0.55, -0.22, 0.3, -0.05, 0);
-    shape.lineTo(0, 0);
-    const g = new THREE.ExtrudeGeometry(shape, {
-      depth: 0.35,
-      bevelEnabled: true,
-      bevelSize: 0.03,
-      bevelThickness: 0.02,
-      bevelSegments: 2,
-      curveSegments: 16,
-    });
-    g.translate(0, 0, -0.175);
-    g.computeVertexNormals();
-    return g;
-  }, []);
-
-  return (
-    <mesh geometry={geom} position={[-0.35, -1.55, 0]} rotation={[0, 0, 0.3]}>
-      <meshStandardMaterial color="#e08e76" roughness={0.55} />
-    </mesh>
-  );
-}
-
-function Larynx({ frication }: { frication: number }) {
-  // Stylized thyroid cartilage tube + vocal fold slit
-  return (
-    <group position={[-0.35, -2.1, 0]}>
-      {/* Outer tube */}
-      <mesh rotation={[0, 0, 0]}>
-        <cylinderGeometry args={[0.32, 0.35, 0.85, 24]} />
-        <meshStandardMaterial
-          color="#e3a48f"
-          roughness={0.7}
-          transparent
-          opacity={0.5}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-      {/* Vocal folds — two wedges with a white slit */}
-      <mesh position={[0.12, 0.05, 0.15]} rotation={[0, 0, 0.2]}>
-        <boxGeometry args={[0.18, 0.12, 0.05]} />
-        <meshStandardMaterial color="#fdf0e6" roughness={0.4} />
-      </mesh>
-      <mesh position={[0.12, 0.05, -0.15]} rotation={[0, 0, 0.2]}>
-        <boxGeometry args={[0.18, 0.12, 0.05]} />
-        <meshStandardMaterial color="#fdf0e6" roughness={0.4} />
-      </mesh>
-      {/* Glottal airflow indicator (visible during ㅎ) */}
-      <mesh position={[0.12, 0.05, 0]}>
-        <boxGeometry args={[0.02, 0.02 + frication * 0.04, 0.18]} />
-        <meshBasicMaterial color="#7fc8f8" transparent opacity={frication} />
-      </mesh>
-    </group>
-  );
-}
-
-/* ============================================================
- * Vertebral column — stack of cervical vertebrae
- * ============================================================ */
-function VertebralColumn() {
-  const vertebrae = useMemo(() => {
-    const arr: { y: number }[] = [];
-    for (let i = 0; i < 6; i++) {
-      arr.push({ y: 1.5 - i * 0.7 });
-    }
-    return arr;
-  }, []);
-
-  return (
-    <group position={[-1.25, 0, 0]}>
-      {vertebrae.map((v, i) => (
-        <group key={i} position={[0, v.y, 0]}>
-          {/* Body (cylinder-ish disk) */}
-          <mesh>
-            <cylinderGeometry args={[0.34, 0.34, 0.42, 24]} />
-            <meshStandardMaterial color="#f5d8b8" roughness={0.6} />
-          </mesh>
-          {/* Inter-vertebral disk */}
-          <mesh position={[0, -0.27, 0]}>
-            <cylinderGeometry args={[0.3, 0.3, 0.1, 24]} />
-            <meshStandardMaterial color="#dca580" roughness={0.7} />
-          </mesh>
-        </group>
-      ))}
-    </group>
-  );
-}
-
-/* ============================================================
- * Frication particle stream
- * ============================================================ */
-function FricationStream({ amount }: { amount: number }) {
-  const groupRef = useRef<THREE.Group>(null);
-  const particles = useMemo(() => {
-    const arr: { phase: number; r: number; y: number }[] = [];
-    for (let i = 0; i < 16; i++) {
-      arr.push({
-        phase: Math.random() * Math.PI * 2,
-        r: 0.04 + Math.random() * 0.05,
-        y: (Math.random() - 0.5) * 0.06,
-      });
-    }
-    return arr;
-  }, []);
-  const t = useRef(0);
-
-  useFrame((_, dt) => {
-    t.current += dt;
-    if (groupRef.current) {
-      groupRef.current.visible = amount > 0.05;
-      const scale = 0.5 + amount * 0.8;
-      groupRef.current.scale.setScalar(scale);
-    }
-  });
-
-  return (
-    <group ref={groupRef} position={[2.6, -0.4, 0]}>
-      {particles.map((p, i) => {
-        const tt = (t.current * 1.6 + p.phase) % 1;
-        const z = Math.sin(p.phase * 2.5 + t.current * 2) * 0.05;
-        const x = tt * 0.6;
-        const y = p.y + Math.sin(t.current * 5 + p.phase) * 0.03;
-        return (
-          <mesh key={i} position={[x, y, z]}>
-            <sphereGeometry args={[p.r, 8, 8]} />
-            <meshBasicMaterial
-              color="#7fc8f8"
-              transparent
-              opacity={Math.max(0, amount * (1 - tt))}
-            />
-          </mesh>
-        );
-      })}
-    </group>
-  );
-}
-
-/* ============================================================
- * Articulator scene with smooth pose interpolation
+ * Scene with smooth interpolation
  * ============================================================ */
 
-type SceneHandle = {
-  setPose: (key: PoseKey) => void;
-};
+type SceneHandle = { setPose: (key: PoseKey) => void };
 
-const Articulators = forwardRef<SceneHandle, { idleBreath: boolean }>(
-  function Articulators({ idleBreath }, ref) {
+const Scene = forwardRef<SceneHandle, { idleBreath: boolean; showSkin: boolean }>(
+  function Scene({ idleBreath, showSkin }, ref) {
     const targetRef = useRef<Pose>({ ...IDLE_POSE });
     const currentRef = useRef<Pose>({ ...IDLE_POSE });
     const breathT = useRef(0);
+    const [vals, setVals] = useState<Pose>({ ...IDLE_POSE });
 
     useImperativeHandle(ref, () => ({
       setPose: (key) => {
@@ -883,13 +736,10 @@ const Articulators = forwardRef<SceneHandle, { idleBreath: boolean }>(
       },
     }));
 
-    const [vals, setVals] = useState<Pose>({ ...IDLE_POSE });
-
     useFrame((_, dt) => {
       const t = targetRef.current;
       const c = currentRef.current;
-      const k = 1 - Math.pow(0.001, dt);
-
+      const k = 1 - Math.pow(0.0015, dt);
       const next: Pose = {
         jawOpen: lerp(c.jawOpen, t.jawOpen, k),
         lipClosure: lerp(c.lipClosure, t.lipClosure, k),
@@ -901,43 +751,107 @@ const Articulators = forwardRef<SceneHandle, { idleBreath: boolean }>(
         velumLower: lerp(c.velumLower, t.velumLower, k),
         frication: lerp(c.frication, t.frication, k),
       };
-
       if (idleBreath) {
         breathT.current += dt;
-        next.jawOpen += Math.sin(breathT.current * 1.2) * 0.015;
-        next.tongueBodyY += Math.sin(breathT.current * 0.9) * 0.01;
+        next.jawOpen += Math.sin(breathT.current * 1.1) * 0.012;
+        next.tongueBodyY += Math.sin(breathT.current * 0.85) * 0.012;
       }
-
       currentRef.current = next;
       setVals(next);
     });
 
     return (
       <group>
-        <HardPalate />
-        <SoftPalate lower={vals.velumLower} />
-        <NasalCavity />
-        <PharyngealWall />
-        <UpperJaw />
+        {/* back layers */}
+        <Vertebrae />
+        <Region
+          points={NASAL_AIRWAY}
+          color={C.airway}
+          zCenter={Z.nasalAir}
+          renderOrder={4}
+          outline={false}
+        />
+        <Region
+          points={ORAL_AIRWAY}
+          color={C.airway}
+          zCenter={Z.oralAir}
+          renderOrder={6}
+          outlineColor={C.outline}
+          outlineWidth={1}
+        />
+        <Region
+          points={NASAL}
+          color={C.nasal}
+          zCenter={Z.nasal}
+          renderOrder={8}
+          outlineColor={C.outline}
+        />
+        <Region
+          points={HARD_PALATE}
+          color={C.bone}
+          zCenter={Z.hardPalate}
+          renderOrder={10}
+          outlineColor={C.outline}
+        />
+
+        {/* larynx + epiglottis */}
+        <Region
+          points={LARYNX}
+          color={C.larynx}
+          zCenter={Z.larynx}
+          renderOrder={9}
+          outlineColor={C.outline}
+        />
+        <Region
+          points={EPIGLOTTIS}
+          color={C.velum}
+          zCenter={Z.epiglottis}
+          renderOrder={12}
+          outlineColor={C.outline}
+        />
+
+        {/* movable articulators */}
+        <Velum lower={vals.velumLower} />
+        <Tongue
+          bodyX={vals.tongueBodyX}
+          bodyY={vals.tongueBodyY}
+          tipY={vals.tongueTipY}
+          tipX={vals.tongueTipX}
+        />
+        <Region
+          points={UPPER_TEETH}
+          color={C.teeth}
+          zCenter={Z.teeth}
+          renderOrder={22}
+          outlineColor="#cbb9a0"
+          outlineWidth={1}
+        />
         <UpperLip
           lipClosure={vals.lipClosure}
           lipProtrusion={vals.lipProtrusion}
         />
-        <LowerJawAndLip
+        <LowerJaw
           jawOpen={vals.jawOpen}
           lipClosure={vals.lipClosure}
           lipProtrusion={vals.lipProtrusion}
         />
-        <Tongue
-          tipY={vals.tongueTipY}
-          tipX={vals.tongueTipX}
-          bodyY={vals.tongueBodyY}
-          bodyX={vals.tongueBodyX}
-        />
-        <Epiglottis />
-        <Larynx frication={vals.frication} />
-        <VertebralColumn />
         <FricationStream amount={vals.frication} />
+
+        {/* skin envelope on top, semi-transparent */}
+        {showSkin && (
+          <Region
+            points={SKIN}
+            color={C.skin}
+            depth={1.1}
+            zCenter={0.1}
+            renderOrder={30}
+            transparent
+            opacity={0.16}
+            outline
+            outlineColor="#b98e6e"
+            outlineWidth={1.6}
+          />
+        )}
       </group>
     );
   },
@@ -949,23 +863,19 @@ const Articulators = forwardRef<SceneHandle, { idleBreath: boolean }>(
 
 export default function ArticulatorViewer({
   showStats = false,
-  showHead = true,
 }: {
   showStats?: boolean;
-  showHead?: boolean;
 }) {
   const sceneRef = useRef<SceneHandle>(null);
   const [activePose, setActivePose] = useState<PoseKey>("idle");
   const [idleBreath, setIdleBreath] = useState(true);
-  const [headOn, setHeadOn] = useState(showHead);
-  const [crossSection, setCrossSection] = useState(true);
+  const [showSkin, setShowSkin] = useState(true);
   const [autoRotate, setAutoRotate] = useState(false);
 
   const applyPose = (key: PoseKey) => {
     setActivePose(key);
     sceneRef.current?.setPose(key);
   };
-
   useEffect(() => {
     sceneRef.current?.setPose("idle");
   }, []);
@@ -986,37 +896,17 @@ export default function ArticulatorViewer({
 
   return (
     <div className="flex h-full min-h-[640px] w-full flex-col gap-3 lg:flex-row">
-      <div className="relative h-[560px] flex-1 overflow-hidden rounded-2xl bg-gradient-to-b from-slate-900 to-slate-700 shadow-inner lg:h-auto">
+      <div className="relative h-[560px] flex-1 overflow-hidden rounded-2xl bg-slate-50 shadow-inner lg:h-auto">
         <Canvas
-          shadows
-          camera={{ position: [6.5, 1.5, 6.0], fov: 36, near: 0.1, far: 100 }}
+          camera={{ position: [0.6, -0.1, 8.2], fov: 34, near: 0.1, far: 100 }}
           dpr={[1, 2]}
         >
-          <color attach="background" args={["#0f172a"]} />
-          <fog attach="fog" args={["#0f172a", 14, 28]} />
+          <color attach="background" args={["#f1f5f9"]} />
+          <ambientLight intensity={0.85} />
+          <directionalLight position={[2, 5, 6]} intensity={0.8} />
+          <directionalLight position={[-3, 2, 4]} intensity={0.3} />
 
-          <ambientLight intensity={0.6} />
-          <directionalLight
-            position={[6, 7, 5]}
-            intensity={1.0}
-            color="#fff5e6"
-          />
-          <directionalLight
-            position={[-5, 2, -3]}
-            intensity={0.4}
-            color="#a8c0ff"
-          />
-          <pointLight position={[2.5, 0.3, 1.5]} intensity={0.6} color="#ffb98a" />
-
-          <group position={[0, 0, 0]}>
-            <HeadSilhouette visible={headOn} crossSection={crossSection} />
-            <Articulators ref={sceneRef} idleBreath={idleBreath} />
-          </group>
-
-          <gridHelper
-            args={[10, 20, "#334155", "#1f2937"]}
-            position={[0, -3.1, 0]}
-          />
+          <Scene ref={sceneRef} idleBreath={idleBreath} showSkin={showSkin} />
 
           <OrbitControls
             enablePan
@@ -1024,9 +914,9 @@ export default function ArticulatorViewer({
             enableRotate
             autoRotate={autoRotate}
             autoRotateSpeed={0.6}
-            minDistance={2.5}
-            maxDistance={16}
-            target={[0.5, 0, 0]}
+            minDistance={3}
+            maxDistance={18}
+            target={[0.5, -0.2, 0]}
           />
           <GizmoHelper alignment="bottom-right" margin={[70, 70]}>
             <GizmoViewport
@@ -1034,35 +924,26 @@ export default function ArticulatorViewer({
               labelColor="#0f172a"
             />
           </GizmoHelper>
-
           {showStats && <Stats />}
         </Canvas>
 
-        <div className="pointer-events-none absolute left-4 top-4 rounded-md bg-black/40 px-3 py-2 text-xs text-slate-100 backdrop-blur">
+        <div className="pointer-events-none absolute left-4 top-4 rounded-md bg-white/70 px-3 py-2 text-xs text-slate-700 backdrop-blur">
           <div className="font-semibold">조작</div>
           <div>· 왼쪽 드래그: 회전 (측면/후면/정면)</div>
           <div>· 휠: 줌 인 / 아웃</div>
           <div>· 오른쪽 드래그: 이동(팬)</div>
         </div>
 
-        <div className="pointer-events-auto absolute right-4 top-4 flex flex-col items-end gap-2">
-          <label className="flex items-center gap-2 rounded-md bg-black/40 px-2 py-1 text-xs text-slate-100 backdrop-blur">
+        <div className="absolute right-4 top-4 flex flex-col items-end gap-2">
+          <label className="flex items-center gap-2 rounded-md bg-white/80 px-2 py-1 text-xs text-slate-700 backdrop-blur">
             <input
               type="checkbox"
-              checked={headOn}
-              onChange={(e) => setHeadOn(e.target.checked)}
+              checked={showSkin}
+              onChange={(e) => setShowSkin(e.target.checked)}
             />
-            머리 외형
+            피부 외형(반투명)
           </label>
-          <label className="flex items-center gap-2 rounded-md bg-black/40 px-2 py-1 text-xs text-slate-100 backdrop-blur">
-            <input
-              type="checkbox"
-              checked={crossSection}
-              onChange={(e) => setCrossSection(e.target.checked)}
-            />
-            단면도 모드
-          </label>
-          <label className="flex items-center gap-2 rounded-md bg-black/40 px-2 py-1 text-xs text-slate-100 backdrop-blur">
+          <label className="flex items-center gap-2 rounded-md bg-white/80 px-2 py-1 text-xs text-slate-700 backdrop-blur">
             <input
               type="checkbox"
               checked={idleBreath}
@@ -1070,7 +951,7 @@ export default function ArticulatorViewer({
             />
             Idle 호흡
           </label>
-          <label className="flex items-center gap-2 rounded-md bg-black/40 px-2 py-1 text-xs text-slate-100 backdrop-blur">
+          <label className="flex items-center gap-2 rounded-md bg-white/80 px-2 py-1 text-xs text-slate-700 backdrop-blur">
             <input
               type="checkbox"
               checked={autoRotate}
@@ -1087,7 +968,8 @@ export default function ArticulatorViewer({
             자음 산출 자세
           </h3>
           <p className="mt-1 text-xs text-slate-500">
-            버튼을 누르면 조음기관이 해당 자음 산출 자세로 부드럽게 이동합니다.
+            버튼을 누르면 조음기관이 자세로 부드럽게 이동하며, 기도(파란
+            영역)가 좁아지는 위치로 조음 위치를 확인할 수 있습니다.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -1120,15 +1002,43 @@ export default function ArticulatorViewer({
         </div>
 
         <div className="mt-2 rounded-xl bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600">
-          <div className="mb-1 font-medium text-slate-700">표시 구조</div>
-          <ul className="list-disc space-y-0.5 pl-4">
-            <li>외형: 두개골 · 안면 윤곽 (단면도 토글)</li>
-            <li>비강: 상·중·하 비갑개 (turbinates)</li>
-            <li>구강: 경구개 · 연구개 · 구개수(uvula)</li>
-            <li>혀: 설근·설체·설첨, 자세별 변형</li>
-            <li>인두 후벽 · 후두개(epiglottis)</li>
-            <li>후두: 갑상연골 · 성대(vocal folds)</li>
-            <li>경추: 6개 척추체</li>
+          <div className="mb-1 font-medium text-slate-700">범례</div>
+          <ul className="space-y-1">
+            <li>
+              <span
+                className="mr-2 inline-block h-2.5 w-2.5 rounded-sm align-middle"
+                style={{ background: C.airway }}
+              />
+              기도(성도 공명강)
+            </li>
+            <li>
+              <span
+                className="mr-2 inline-block h-2.5 w-2.5 rounded-sm align-middle"
+                style={{ background: C.nasal }}
+              />
+              비강 점막 · 연구개
+            </li>
+            <li>
+              <span
+                className="mr-2 inline-block h-2.5 w-2.5 rounded-sm align-middle"
+                style={{ background: C.tongue }}
+              />
+              혀(설근·설체·설첨)
+            </li>
+            <li>
+              <span
+                className="mr-2 inline-block h-2.5 w-2.5 rounded-sm align-middle"
+                style={{ background: C.bone }}
+              />
+              경구개 · 하악 · 경추
+            </li>
+            <li>
+              <span
+                className="mr-2 inline-block h-2.5 w-2.5 rounded-sm align-middle"
+                style={{ background: C.lip }}
+              />
+              입술
+            </li>
           </ul>
         </div>
       </div>
