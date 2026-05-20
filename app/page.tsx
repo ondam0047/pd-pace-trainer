@@ -11,14 +11,11 @@ import {
 export default function HomePage() {
   const router = useRouter();
 
-  const [hasMounted, setHasMounted] = useState(false);
   const [clientName, setClientName] = useState("");
   const [sessionNote, setSessionNote] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
 
   useEffect(() => {
-    setHasMounted(true);
-
     const session = getCurrentSession();
     setClientName(session.clientName);
     setSessionNote(session.sessionNote);
@@ -42,19 +39,6 @@ export default function HomePage() {
     saveCurrentSession({ clientName, sessionNote });
     router.push(path);
   };
-
-  if (!hasMounted) {
-    return (
-      <main className="min-h-screen bg-slate-50 px-6 py-10">
-        <div className="mx-auto max-w-5xl rounded-2xl bg-white p-8 shadow-sm">
-          <h1 className="text-3xl font-bold text-slate-900">
-            PD Pace Trainer
-          </h1>
-          <p className="mt-3 text-slate-600">불러오는 중...</p>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-10">
