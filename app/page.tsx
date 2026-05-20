@@ -42,14 +42,14 @@ type Module = { href: string; title: string; subtitle: string; description: stri
 
 const MODULES: Module[] = [
   { href: "/pitch", title: "실시간 피치·강도", subtitle: "F0 + dB Tracking", description: "기본주파수·음성강도·음역 시계열 통합 분석", color: "blue", status: "ready" },
-  { href: "/vocal-tract", title: "모음·자음 시각화", subtitle: "Vocal Tract", description: "실시간 F1/F2 + 자음 조음 위치 + 마찰음 변별", color: "blue", status: "ready" },
-  { href: "/voice-quality", title: "음질 분석", subtitle: "Voice Quality", description: "jitter · shimmer · HNR 자동 추출", color: "blue", status: "soon" },
-  { href: "/mpt", title: "MPT", subtitle: "Maximum Phonation Time", description: "최대발성지속시간 · 3회 평균 자동 계산", color: "emerald", status: "soon" },
-  { href: "/speech-rate", title: "말속도 분석", subtitle: "Speech Rate Suite", description: "녹음 한 번으로 전체속도 + 조음속도 + 쉬 구간 자동 분석", color: "amber", status: "soon" },
-  { href: "/fluency", title: "유창성 분석", subtitle: "Fluency", description: "%SS 자동 계산 + 비유창 6종 실시간 태그", color: "amber", status: "soon" },
+  { href: "/vocal-tract", title: "모음·자음 시각화", subtitle: "Vocal Tract", description: "실시간 F1/F2 + 자음 조음 위치 + 마찰음 변별 + 3D 조음", color: "blue", status: "ready" },
+  { href: "/voice-quality", title: "음질 분석", subtitle: "Voice Quality", description: "jitter · shimmer · HNR 자동 추출", color: "blue", status: "ready" },
+  { href: "/mpt", title: "MPT", subtitle: "Maximum Phonation Time", description: "최대발성지속시간 · 3회 평균 자동 계산", color: "emerald", status: "ready" },
+  { href: "/speech-rate", title: "말속도 분석", subtitle: "Speech Rate Suite", description: "녹음 → VAD 자동 분할 + ASR 음절 카운트 + 전체/조음속도", color: "amber", status: "ready" },
+  { href: "/fluency", title: "유창성 분석", subtitle: "Fluency", description: "%SS 자동 계산 + 비유창 6종 실시간 태그 + ASR 음절 카운트", color: "amber", status: "ready" },
   { href: "/pace", title: "페이스 조절 훈련", subtitle: "Cued Pacing", description: "시각·청각·혼합 단서 훈련 · 세션 기록", color: "rose", status: "ready" },
-  { href: "/daf", title: "DAF 훈련기", subtitle: "Delayed Auditory Feedback", description: "50–500ms 지연 청각피드백 (말더듬·파킨슨)", color: "rose", status: "soon" },
-  { href: "/intensity-trainer", title: "강도 바이오피드백", subtitle: "Intensity Biofeedback", description: "목표 dB 구간 게이지 훈련 (LSVT LOUD 기반)", color: "rose", status: "soon" },
+  { href: "/daf", title: "DAF 훈련기", subtitle: "Delayed Auditory Feedback", description: "50–500ms 지연 청각피드백 (말더듬·파킨슨)", color: "rose", status: "ready" },
+  { href: "/intensity-trainer", title: "강도 바이오피드백", subtitle: "Intensity Biofeedback", description: "목표 dB 구간 게이지 훈련 (LSVT LOUD 기반)", color: "rose", status: "ready" },
 ];
 
 export default function HomePage() {
