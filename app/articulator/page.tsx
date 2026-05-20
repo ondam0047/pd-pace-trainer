@@ -9,7 +9,7 @@ const ArticulatorViewer = dynamic(
   () => import("@/components/ArticulatorViewer"),
   { ssr: false },
 );
-const GlbHeadViewer = dynamic(() => import("@/components/GlbHeadViewer"), {
+const GlbHybridViewer = dynamic(() => import("@/components/GlbHybridViewer"), {
   ssr: false,
 });
 
@@ -52,17 +52,17 @@ export default function ArticulatorPage() {
                 : "bg-white text-slate-700 ring-1 ring-slate-200")
             }
           >
-            실사 모델 (GLB)
+            실사 + 가동부 (하이브리드)
           </button>
         </div>
 
         <p className="text-xs text-slate-500 sm:text-sm">
           {mode === "procedural"
             ? "입술·혀·경구개·연구개가 자음에 맞춰 반복 조음하고 공기가 흐릅니다. 마우스로 회전, 휠로 줌."
-            : "Meshy AI 사지털 단면 모델 뷰어. 방향·구강 위치 확인용입니다."}
+            : "실사 GLB(고정) + 움직이는 조음부(연구개·혀끝·혀몸·입술). 정렬 후 슬라이더/재생으로 조음."}
         </p>
 
-        {mode === "procedural" ? <ArticulatorViewer /> : <GlbHeadViewer />}
+        {mode === "procedural" ? <ArticulatorViewer /> : <GlbHybridViewer />}
       </div>
     </main>
   );
