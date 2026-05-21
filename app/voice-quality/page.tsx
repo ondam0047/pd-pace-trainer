@@ -14,6 +14,8 @@ import {
 } from "@/components/voiceQuality/analyzer";
 import SaveToHistory from "@/components/SaveToHistory";
 import { decodeAudioFile } from "@/components/audioFile";
+import MdvpRadar from "@/components/voiceQuality/MdvpRadar";
+import { downloadReport, type ReportRow } from "@/components/report";
 
 const RECORD_DURATION_SEC = 3;
 
@@ -146,6 +148,67 @@ export default function VoiceQualityPage() {
     [analyzeFile],
   );
 
+  const downloadVqReport = useCallback(() => {
+    const r = currentResult;
+    const row = (
+      label: string,
+      value: string,
+      mkey?: MdvpKey,
+      v?: number,
+    ): ReportRow => ({
+      label,
+      value,
+      ref: mkey ? `≤ ${MDVP_THRESHOLDS[mkey]}` : "",
+      status: mkey && v !== undefined ? getStatus(v, mkey) : null,
+    });
+    downloadReport(
+      {
+        title: "음질 분석 (MDVP) 리포트",
+        subtitle: `유효 ${r.validFrames} 프레임 · ${r.durationSec.toFixed(2)}초 · 프레임 단위 근사(MDVP/Praat 대조 권장)`,
+        sections: [
+          {
+            heading: "기본주파수 (F0)",
+            rows: [
+              row("F0 평균", `${r.f0Mean.toFixed(1)} Hz`),
+              row("Fhi / Flo", `${r.f0Hi.toFixed(1)} / ${r.f0Lo.toFixed(1)} Hz`),
+              row("STD 표준편차", `${r.f0SD.toFixed(2)} Hz`),
+              row("PFR 음역", `${r.pfrSemitones.toFixed(1)} st`),
+              row("vF0", `${r.vF0.toFixed(2)} %`, "vF0", r.vF0),
+            ],
+          },
+          {
+            heading: "주파수 변동 (Jitter)",
+            rows: [
+              row("Jita 절대지터", `${r.jitaUs.toFixed(1)} µs`, "jitaUs", r.jitaUs),
+              row("Jitt 지터%", `${r.jitterLocal.toFixed(2)} %`, "jitterLocal", r.jitterLocal),
+              row("RAP", `${r.rap.toFixed(2)} %`, "rap", r.rap),
+              row("PPQ", `${r.ppq5.toFixed(2)} %`, "ppq5", r.ppq5),
+            ],
+          },
+          {
+            heading: "진폭 변동 (Shimmer)",
+            rows: [
+              row("Shim 쉼머%", `${r.shimmerLocal.toFixed(2)} %`, "shimmerLocal", r.shimmerLocal),
+              row("ShdB 쉼머dB", `${r.shdB.toFixed(2)} dB`, "shdB", r.shdB),
+              row("APQ", `${r.apq11.toFixed(2)} %`, "apq11", r.apq11),
+              row("vAm", `${r.vAm.toFixed(2)} %`, "vAm", r.vAm),
+            ],
+          },
+          {
+            heading: "잡음 (Noise)",
+            rows: [
+              row("NHR", `${r.nhr.toFixed(3)}`, "nhr", r.nhr),
+              { label: "HNR (보조)", value: `${r.hnr.toFixed(1)} dB`, ref: `≥ ${HNR_NORMAL} dB`, status: getHnrStatus(r.hnr) },
+            ],
+          },
+        ],
+        footnote:
+          "근거: KayPENTAX MDVP 병리 임계값 / Praat(Boersma & Weenink) Voice 매뉴얼. 프레임 단위 근사로 MDVP/Praat 본 프로그램과 차이가 있을 수 있으며, 임상 확정은 대조가 필요합니다.",
+      },
+      "voice_quality_mdvp",
+    );
+  }, [currentResult]);
+
   const reset = useCallback(() => {
     setTrials([]);
     setCurrentResult(EMPTY_RESULT);
@@ -228,6 +291,18 @@ export default function VoiceQualityPage() {
                 </span>
               </div>
 
+              <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  MDVP 방사형 다이어그램
+                </p>
+                <div className="mx-auto max-w-md">
+                  <MdvpRadar result={currentResult} />
+                </div>
+                <p className="text-center text-xs text-slate-500">
+                  초록 원 = 정상 임계값 · 점이 원 밖(빨강)이면 이상
+                </p>
+              </div>
+
               <div className="grid gap-5 lg:grid-cols-2">
                 <MetricGroup title="기본주파수 (F0)">
                   <MetricRow label="F0 평균" code="F0" value={currentResult.f0Mean} unit="Hz" digits={1} />
@@ -256,6 +331,17 @@ export default function VoiceQualityPage() {
                   <MetricRow label="배음대잡음비" code="HNR" value={currentResult.hnr} unit="dB" digits={1} hnr />
                 </MetricGroup>
               </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={downloadVqReport}
+                className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
+              >
+                📄 리포트 다운로드
+              </button>
+              <span className="text-xs text-slate-500">
+                HTML 리포트로 저장 → 열어서 인쇄/PDF 가능
+              </span>
             </div>
             <SaveToHistory
               moduleId="voice_quality"

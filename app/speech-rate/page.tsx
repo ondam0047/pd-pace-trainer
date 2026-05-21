@@ -13,10 +13,28 @@ import {
 } from "@/components/asr/syllableCount";
 import SaveToHistory from "@/components/SaveToHistory";
 import { decodeAudioFile } from "@/components/audioFile";
+import { downloadReport } from "@/components/report";
 
 type Phase = "idle" | "recording" | "done";
 const DURATION_OPTIONS = [10, 15, 30, 60] as const;
 type Duration = (typeof DURATION_OPTIONS)[number];
+
+function computePeaks(data: Float32Array, buckets: number): number[] {
+  const out = new Array(buckets).fill(0);
+  const size = Math.floor(data.length / buckets) || 1;
+  for (let i = 0; i < buckets; i++) {
+    let max = 0;
+    const start = i * size;
+    const end = Math.min(data.length, start + size);
+    for (let j = start; j < end; j++) {
+      const a = Math.abs(data[j]);
+      if (a > max) max = a;
+    }
+    out[i] = max;
+  }
+  const peak = Math.max(...out, 1e-6);
+  return out.map((v) => v / peak);
+}
 
 export default function SpeechRatePage() {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -27,6 +45,8 @@ export default function SpeechRatePage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [editedTranscript, setEditedTranscript] = useState<string>("");
   const [autoFilled, setAutoFilled] = useState(false);
+  const [peaks, setPeaks] = useState<number[]>([]);
+  const [rawDuration, setRawDuration] = useState(0);
 
   const asr = useKoreanASR();
 
@@ -74,6 +94,8 @@ export default function SpeechRatePage() {
     }
     const sr = audioCtxRef.current?.sampleRate ?? 44100;
     const res = analyzeSpeechRate(combined, sr);
+    setPeaks(computePeaks(combined, 800));
+    setRawDuration(combined.length / sr);
     setResult(res);
     setPhase("done");
     asr.stop();
@@ -149,6 +171,8 @@ export default function SpeechRatePage() {
       try {
         const { data, sampleRate } = await decodeAudioFile(file);
         const res = analyzeSpeechRate(data, sampleRate);
+        setPeaks(computePeaks(data, 800));
+        setRawDuration(data.length / sampleRate);
         setResult(res);
         setPhase("done");
       } catch (err) {
@@ -184,6 +208,8 @@ export default function SpeechRatePage() {
     setAutoFilled(false);
     setPhase("idle");
     setElapsed(0);
+    setPeaks([]);
+    setRawDuration(0);
     asr.reset();
   }, [asr]);
 
@@ -217,6 +243,41 @@ export default function SpeechRatePage() {
       : 0;
   const overallWPM = overallSPS * 60 / 2.5; // 음절·단어 대략 2.5음절 기준
 
+  const downloadSrReport = () => {
+    if (!result) return;
+    const rateRows = validSyllables
+      ? [
+          { label: "음절 수", value: `${syllablesNum} 개` },
+          { label: "전체 말속도", value: `${overallSPS.toFixed(2)} SPS`, ref: `≈ ${overallWPM.toFixed(0)} WPM` },
+          { label: "조음속도 (쉼 제외)", value: `${articulationSPS.toFixed(2)} SPS` },
+        ]
+      : [{ label: "음절 수", value: "(미입력 — 말속도 계산 불가)" }];
+    downloadReport(
+      {
+        title: "말속도 분석 리포트",
+        subtitle: `전체 ${result.totalDuration.toFixed(2)}초 · 발화 ${result.speechDuration.toFixed(2)}초`,
+        sections: [
+          {
+            heading: "시간 · 쉼 구간",
+            rows: [
+              { label: "전체 시간", value: `${result.totalDuration.toFixed(2)} 초` },
+              { label: "순 발화 시간", value: `${result.speechDuration.toFixed(2)} 초`, ref: `${((result.speechDuration / result.totalDuration) * 100).toFixed(0)}%` },
+              { label: "쉼 구간 수", value: `${result.pauseCount} 회`, ref: `장쉼(≥250ms) ${result.longPauseCount}회` },
+              { label: "평균 쉼 길이", value: `${(result.meanPauseDuration * 1000).toFixed(0)} ms`, ref: `최대 ${(result.maxPauseDuration * 1000).toFixed(0)} ms` },
+            ],
+          },
+          { heading: "말속도", rows: rateRows },
+          ...(editedTranscript.trim()
+            ? [{ heading: "전사", rows: [{ label: "내용", value: editedTranscript.trim() }] }]
+            : []),
+        ],
+        footnote:
+          "성인 정상 명료 — 낭독 4.5–6.0 SPS / 자유발화 3.5–5.0 SPS. 근거: 신문자(2008), Tjaden & Wilding(2004), Yorkston 외(2010). VAD 임계 기반 쉼 자동 분할.",
+      },
+      "speech_rate",
+    );
+  };
+
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-10">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -234,8 +295,8 @@ export default function SpeechRatePage() {
             말속도 분석
           </h1>
           <p className="mt-2 max-w-3xl text-slate-600">
-            녹음 한 번 또는 녹음 파일 업로드로 전체속도 + 조음속도 + 쉬 구간
-            분석을 동시 제공합니다. VAD 로 쉬를 자동 분할하고, 실시간 녹음 시
+            녹음 한 번 또는 녹음 파일 업로드로 전체속도 + 조음속도 + 쉼 구간
+            분석을 동시 제공합니다. VAD 로 쉼을 자동 분할하고, 실시간 녹음 시
             음성 인식으로 음절 수까지 자동 산출합니다 (파일 업로드는 전사
             붙여넣기/직접 입력).
           </p>
@@ -299,7 +360,7 @@ export default function SpeechRatePage() {
               <p className="text-xs text-slate-500">
                 &quot;녹음 시작&quot; 후 대상자에게 낭독·자유발화를 요청하세요
                 (설정 시간에 자동 종료, 조기 종료 가능). 또는 미리 녹음한 파일을
-                업로드하면 VAD 로 쉬를 자동 분할합니다. 파일 업로드 시 음절 수는
+                업로드하면 VAD 로 쉼을 자동 분할합니다. 파일 업로드 시 음절 수는
                 전사를 붙여넣거나 직접 입력하세요.
               </p>
             </div>
@@ -347,12 +408,12 @@ export default function SpeechRatePage() {
                 ✓ 녹음 완료 · 자동 분석 결과
               </p>
 
-              {/* Segment visualization */}
+              {/* 파형 + 발화/쉼 오버레이 */}
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <p className="mb-2 text-xs font-medium text-slate-600">
-                  발화 / 쉬 구간 (녹색 = 발화, 회색 = 쉬)
+                  파형 · 발화 / 쉼 구간 (녹색 = 발화, 회색 = 쉼)
                 </p>
-                <SegmentTimeline result={result} />
+                <SpeechWaveform peaks={peaks} rawDuration={rawDuration} result={result} />
                 <div className="mt-2 flex items-center gap-3 text-xs text-slate-500">
                   <span className="flex items-center gap-1">
                     <span className="inline-block h-3 w-3 rounded bg-emerald-500"></span>{" "}
@@ -360,7 +421,7 @@ export default function SpeechRatePage() {
                   </span>
                   <span className="flex items-center gap-1">
                     <span className="inline-block h-3 w-3 rounded bg-slate-400"></span>{" "}
-                    쉬 {result.pauseDuration.toFixed(2)}초 ({result.pauseCount}회)
+                    쉼 {result.pauseDuration.toFixed(2)}초 ({result.pauseCount}회)
                   </span>
                 </div>
               </div>
@@ -457,12 +518,20 @@ export default function SpeechRatePage() {
         {/* Results */}
         {phase === "done" && result && (
           <div className="rounded-2xl border border-amber-200 bg-white p-6 shadow-sm">
-            <h3 className="mb-4 text-lg font-bold text-slate-900">분석 결과</h3>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">분석 결과</h3>
+              <button
+                onClick={downloadSrReport}
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                📄 리포트 다운로드
+              </button>
+            </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <ResultBox label="전체 시간" value={`${result.totalDuration.toFixed(2)} 초`} />
               <ResultBox label="순 발화 시간" value={`${result.speechDuration.toFixed(2)} 초`} sub={`${((result.speechDuration / result.totalDuration) * 100).toFixed(0)}% of total`} />
-              <ResultBox label="쉬 구간 수" value={`${result.pauseCount} 회`} sub={`장쉬(≥250ms) ${result.longPauseCount}회`} />
-              <ResultBox label="평균 쉬 길이" value={`${(result.meanPauseDuration * 1000).toFixed(0)} ms`} sub={`최대 ${(result.maxPauseDuration * 1000).toFixed(0)} ms`} />
+              <ResultBox label="쉼 구간 수" value={`${result.pauseCount} 회`} sub={`장쉼(≥250ms) ${result.longPauseCount}회`} />
+              <ResultBox label="평균 쉼 길이" value={`${(result.meanPauseDuration * 1000).toFixed(0)} ms`} sub={`최대 ${(result.maxPauseDuration * 1000).toFixed(0)} ms`} />
             </div>
             {validSyllables && (
               <div className="mt-5 space-y-4">
@@ -472,7 +541,7 @@ export default function SpeechRatePage() {
                   </h4>
                   <div className="grid gap-3 sm:grid-cols-3">
                     <ResultBox label="전체 말속도" value={`${overallSPS.toFixed(2)} SPS`} sub={`≈ ${overallWPM.toFixed(0)} WPM`} highlight />
-                    <ResultBox label="조음속도" value={`${articulationSPS.toFixed(2)} SPS`} sub={"쉬 제외"} />
+                    <ResultBox label="조음속도" value={`${articulationSPS.toFixed(2)} SPS`} sub={"쉼 제외"} />
                     <ResultBox label="속도 비율" value={`${(overallSPS / articulationSPS * 100 || 0).toFixed(0)}%`} sub={"전체/조음"} />
                   </div>
                 </div>
@@ -509,13 +578,13 @@ export default function SpeechRatePage() {
               <p className="font-semibold">파킨슨병</p>
               <p className="text-xs text-slate-600">
                 조음속도 정상 수준 유지 → 전체속도는 올라갈 수 있음
-                (쉬가 적음)
+                (쉼이 적음)
               </p>
             </div>
             <div>
               <p className="font-semibold">상안 말더듬</p>
               <p className="text-xs text-slate-600">
-                조음속도·전체속도 감소, 장쉬 빈도 증가
+                조음속도·전체속도 감소, 장쉼 빈도 증가
               </p>
             </div>
             <p className="mt-3 text-xs text-slate-500">
@@ -529,23 +598,66 @@ export default function SpeechRatePage() {
   );
 }
 
-function SegmentTimeline({ result }: { result: SpeechRateResult }) {
-  const total = result.totalDuration;
-  if (total <= 0) return null;
-  const startBase = result.segments[0]?.start ?? 0;
+function SpeechWaveform({
+  peaks,
+  rawDuration,
+  result,
+}: {
+  peaks: number[];
+  rawDuration: number;
+  result: SpeechRateResult;
+}) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    const canvas = canvasRef.current;
+    if (!wrap || !canvas) return;
+
+    const classify = (t: number): "speech" | "pause" | "none" => {
+      for (const s of result.segments) {
+        if (t >= s.start && t <= s.end) return s.type;
+      }
+      return "none";
+    };
+
+    const draw = () => {
+      const cssW = wrap.clientWidth;
+      const cssH = 72;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(cssW * dpr));
+      canvas.height = Math.floor(cssH * dpr);
+      canvas.style.width = `${cssW}px`;
+      canvas.style.height = `${cssH}px`;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, cssW, cssH);
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(0, 0, cssW, cssH);
+      const mid = cssH / 2;
+      const n = peaks.length;
+      if (n === 0 || rawDuration <= 0) return;
+      const barW = cssW / n;
+      const colors = { speech: "#10b981", pause: "#94a3b8", none: "#e2e8f0" };
+      for (let i = 0; i < n; i++) {
+        const t = (i / n) * rawDuration;
+        const h = Math.max(1, peaks[i] * cssH * 0.9);
+        ctx.fillStyle = colors[classify(t)];
+        ctx.fillRect(i * barW, mid - h / 2, Math.max(0.5, barW), h);
+      }
+    };
+
+    draw();
+    const ro = new ResizeObserver(draw);
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [peaks, rawDuration, result]);
+
   return (
-    <div className="flex h-8 overflow-hidden rounded border border-slate-300">
-      {result.segments.map((s, i) => {
-        const width = ((s.end - s.start) / total) * 100;
-        return (
-          <div
-            key={i}
-            className={s.type === "speech" ? "bg-emerald-500" : "bg-slate-400"}
-            style={{ width: `${width}%` }}
-            title={`${s.type === "speech" ? "발화" : "쉬"}: ${(s.end - s.start).toFixed(2)}초`}
-          />
-        );
-      })}
+    <div ref={wrapRef} className="w-full overflow-hidden rounded border border-slate-300">
+      <canvas ref={canvasRef} className="block" />
     </div>
   );
 }

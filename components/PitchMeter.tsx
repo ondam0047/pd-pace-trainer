@@ -5,6 +5,7 @@ import { yinPitch } from "./pitch/yin";
 import { freqToNoteName, semitonesBetween } from "./pitch/noteUtils";
 import SaveToHistory from "./SaveToHistory";
 import { decodeAudioFile } from "./audioFile";
+import { downloadReport } from "./report";
 
 const DURATION_OPTIONS = [15, 30, 45, 60] as const;
 type Duration = (typeof DURATION_OPTIONS)[number];
@@ -416,6 +417,41 @@ export default function PitchMeter() {
     URL.revokeObjectURL(url);
   }, [samples, lowerBound, upperBound, dbLower, dbUpper]);
 
+  const downloadPitchReport = useCallback(() => {
+    if (samples.length === 0) return;
+    const dur = fileDuration > 0 ? fileDuration : duration;
+    downloadReport(
+      {
+        title: "실시간 피치·강도 분석 리포트",
+        subtitle: `${fileDuration > 0 ? `파일: ${fileName ?? ""} · ` : "마이크 녹음 · "}길이 ${dur.toFixed(1)}초`,
+        sections: [
+          {
+            heading: "기본주파수 (F0)",
+            rows: [
+              { label: "평균 F0", value: `${pitchStats.mean.toFixed(1)} Hz (${freqToNoteName(pitchStats.mean)})` },
+              { label: "최소 ~ 최대", value: `${pitchStats.min.toFixed(0)} ~ ${pitchStats.max.toFixed(0)} Hz` },
+              { label: "음역", value: `${pitchStats.rangeSemitones.toFixed(1)} semitone` },
+              { label: "목표 음역대", value: `${lowerBound.toFixed(0)} ~ ${upperBound.toFixed(0)} Hz` },
+              { label: "목표 음역대 체류", value: `${pitchStats.inRangePct.toFixed(1)} %`, ref: `${pitchStats.inRange}/${pitchStats.total} 샘플` },
+            ],
+          },
+          {
+            heading: "음성강도 (dB SPL 추정)",
+            rows: [
+              { label: "평균 강도", value: `${dbStats.mean.toFixed(1)} dB` },
+              { label: "최소 ~ 최대", value: `${dbStats.min.toFixed(0)} ~ ${dbStats.max.toFixed(0)} dB` },
+              { label: "목표 강도 구간", value: `${dbLower.toFixed(0)} ~ ${dbUpper.toFixed(0)} dB` },
+              { label: "목표 강도 체류", value: `${dbStats.inRangePct.toFixed(1)} %`, ref: `${dbStats.inRange}/${dbStats.total} 샘플` },
+            ],
+          },
+        ],
+        footnote:
+          "강도는 RMS→dBFS+80 추정값으로 절대값보다 상대 변화 추적에 적합합니다. 강도 바이오피드백 목표는 LSVT LOUD 권장 70–85 dB.",
+      },
+      "pitch_intensity",
+    );
+  }, [samples, fileDuration, fileName, duration, pitchStats, dbStats, lowerBound, upperBound, dbLower, dbUpper]);
+
   // 차트 시간축: 업로드 파일이면 파일 길이, 아니면 선택한 측정 시간
   const effDur = fileDuration > 0 ? fileDuration : duration;
 
@@ -682,6 +718,20 @@ export default function PitchMeter() {
         <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800">
           📁 파일 분석: <b>{fileName}</b> · 길이 {fileDuration.toFixed(1)}초 ·
           F0/강도 시계열을 오프라인으로 산출했습니다.
+        </div>
+      )}
+
+      {!isRecording && samples.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={downloadPitchReport}
+            className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
+          >
+            📄 리포트 다운로드
+          </button>
+          <span className="text-xs text-slate-500">
+            HTML 리포트로 저장 → 열어서 인쇄/PDF 가능
+          </span>
         </div>
       )}
 
