@@ -8,6 +8,12 @@ import {
   normalizeTranscript,
 } from "@/components/asr/syllableCount";
 import SaveToHistory from "@/components/SaveToHistory";
+import {
+  detectDisfluencies,
+  KIND_LABEL,
+  KIND_TO_TAG,
+  type DetectedDisfluency,
+} from "@/components/fluency/disfluencyDetector";
 
 type DisfluencyType =
   | "syllable_rep"
@@ -91,6 +97,11 @@ export default function FluencyPage() {
   const [syllables, setSyllables] = useState<string>("");
   const [editedTranscript, setEditedTranscript] = useState<string>("");
   const [autoFilled, setAutoFilled] = useState(false);
+  const [detected, setDetected] = useState<DetectedDisfluency[]>([]);
+  const [dismissed, setDismissed] = useState<Set<number>>(new Set());
+  const [accepted, setAccepted] = useState<Set<number>>(new Set());
+  const [analyzing, setAnalyzing] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
 
   const asr = useKoreanASR();
 
@@ -98,16 +109,83 @@ export default function FluencyPage() {
   const timerRef = useRef<number | null>(null);
   const phaseRef = useRef<"idle" | "recording" | "done">("idle");
 
+  // 오디오 녹음 (음향 비유창 탐지용)
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const recordedRef = useRef<Float32Array[]>([]);
+
+  const stopAudio = useCallback(() => {
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => undefined);
+      audioCtxRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     setElapsed(0);
     setTags([]);
     setSyllables("");
     setEditedTranscript("");
     setAutoFilled(false);
+    setDetected([]);
+    setDismissed(new Set());
+    setAccepted(new Set());
+    setMicError(null);
+    recordedRef.current = [];
+
+    // 오디오 캡처 시작
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+      streamRef.current = stream;
+      const Ctx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext })
+          .webkitAudioContext;
+      const ctx = new Ctx();
+      audioCtxRef.current = ctx;
+      const source = ctx.createMediaStreamSource(stream);
+      sourceRef.current = source;
+      const proc = ctx.createScriptProcessor(4096, 1, 1);
+      proc.onaudioprocess = (e) => {
+        const input = e.inputBuffer.getChannelData(0);
+        const copy = new Float32Array(input.length);
+        copy.set(input);
+        recordedRef.current.push(copy);
+      };
+      processorRef.current = proc;
+      source.connect(proc);
+      proc.connect(ctx.destination);
+    } catch (err) {
+      console.error(err);
+      setMicError(
+        "마이크 접근 실패 — 음향 자동 탐지는 비활성화됩니다. 수동 태깅은 사용 가능합니다.",
+      );
+    }
+
     phaseRef.current = "recording";
     setPhase("recording");
     startTimeRef.current = performance.now();
@@ -125,7 +203,32 @@ export default function FluencyPage() {
     phaseRef.current = "done";
     setPhase("done");
     asr.stop();
-  }, [asr]);
+
+    // 녹음 버퍼 합치고 음향 비유창 탐지
+    const sr = audioCtxRef.current?.sampleRate ?? 44100;
+    stopAudio();
+    const totalLen = recordedRef.current.reduce((s, b) => s + b.length, 0);
+    if (totalLen > 0) {
+      setAnalyzing(true);
+      const combined = new Float32Array(totalLen);
+      let offset = 0;
+      for (const b of recordedRef.current) {
+        combined.set(b, offset);
+        offset += b.length;
+      }
+      // 무거운 계산 — 다음 틱으로 미뤄 UI 블로킹 최소화
+      setTimeout(() => {
+        try {
+          const events = detectDisfluencies(combined, sr);
+          setDetected(events);
+        } catch (err) {
+          console.error("비유창 탐지 실패", err);
+        } finally {
+          setAnalyzing(false);
+        }
+      }, 50);
+    }
+  }, [asr, stopAudio]);
 
   const addTag = useCallback((type: DisfluencyType) => {
     if (phaseRef.current !== "recording") return;
@@ -151,15 +254,45 @@ export default function FluencyPage() {
 
   const reset = () => {
     if (timerRef.current !== null) clearInterval(timerRef.current);
+    stopAudio();
+    recordedRef.current = [];
     phaseRef.current = "idle";
     setPhase("idle");
     setTags([]);
     setSyllables("");
     setEditedTranscript("");
     setAutoFilled(false);
+    setDetected([]);
+    setDismissed(new Set());
+    setAccepted(new Set());
     setElapsed(0);
     asr.reset();
   };
+
+  // 탐지 후보 → 태그로 채택
+  const acceptDetection = (idx: number) => {
+    const ev = detected[idx];
+    if (!ev) return;
+    const type = KIND_TO_TAG[ev.kind] as DisfluencyType;
+    setTags((prev) =>
+      [...prev, { time: ev.start, type, timestamp: Date.now() + idx }].sort(
+        (a, b) => a.time - b.time,
+      ),
+    );
+    setAccepted((prev) => new Set(prev).add(idx));
+  };
+
+  const dismissDetection = (idx: number) => {
+    setDismissed((prev) => new Set(prev).add(idx));
+  };
+
+  const acceptAllDetections = () => {
+    detected.forEach((_, idx) => {
+      if (!accepted.has(idx) && !dismissed.has(idx)) acceptDetection(idx);
+    });
+  };
+
+  useEffect(() => () => stopAudio(), [stopAudio]);
 
   // 세션 종료 시 ASR 전사로부터 음절 수 자동 산출
   useEffect(() => {
@@ -256,10 +389,16 @@ export default function FluencyPage() {
           </h1>
           <p className="mt-2 max-w-3xl text-slate-600">
             임상가가 실시간으로 비유창 이벤트를 태그하면 %SS 와 유형별
-            비율을 자동 계산합니다. 키보드 1–6 또는 버튼으로 태그하고, 음절
-            수는 음성 인식으로 자동 산출됩니다 (수정 가능).
+            비율을 자동 계산합니다. 키보드 1–6 또는 버튼으로 태그하고, 세션
+            종료 후 음향 분석이 반복·연장·막힘 후보를 자동 제안합니다 (검토 필수).
           </p>
         </div>
+
+        {micError && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {micError}
+          </div>
+        )}
 
         {/* 명령 키 레이아웃 + 타이머 */}
         <div className="rounded-2xl border border-amber-200 bg-white p-6 shadow-sm">
@@ -349,6 +488,106 @@ export default function FluencyPage() {
           )}
         </div>
 
+        {/* 음향 자동 탐지 후보 */}
+        {phase === "done" && (analyzing || detected.length > 0) && (
+          <div className="rounded-2xl border border-violet-200 bg-white p-6 shadow-sm">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">
+                음향 자동 탐지 후보
+              </h3>
+              {detected.length > 0 && (
+                <button
+                  onClick={acceptAllDetections}
+                  className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-800 hover:bg-violet-100"
+                >
+                  남은 후보 모두 채택
+                </button>
+              )}
+            </div>
+            <p className="mb-3 text-xs text-slate-500">
+              파형을 직접 분석한 결과입니다 (ASR 아님). 반드시 청취 확인 후
+              채택하세요 — 빠른 정상 발화·잡음에서 오탐 가능.
+            </p>
+
+            {analyzing && (
+              <p className="py-4 text-center text-sm text-slate-500">
+                음향 분석 중…
+              </p>
+            )}
+
+            {!analyzing && detected.length === 0 && (
+              <p className="py-4 text-center text-sm text-slate-500">
+                탐지된 비유창 후보 없음.
+              </p>
+            )}
+
+            {!analyzing && detected.length > 0 && (
+              <div className="space-y-2">
+                {detected.map((ev, idx) => {
+                  const isAccepted = accepted.has(idx);
+                  const isDismissed = dismissed.has(idx);
+                  const kindColor =
+                    ev.kind === "repetition"
+                      ? "bg-rose-100 text-rose-800"
+                      : ev.kind === "prolongation"
+                        ? "bg-purple-100 text-purple-800"
+                        : "bg-red-100 text-red-800";
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
+                        isDismissed
+                          ? "border-slate-200 bg-slate-50 opacity-50"
+                          : isAccepted
+                            ? "border-emerald-300 bg-emerald-50"
+                            : "border-slate-200 bg-white"
+                      }`}
+                    >
+                      <span
+                        className={`rounded px-2 py-0.5 text-xs font-bold ${kindColor}`}
+                      >
+                        {KIND_LABEL[ev.kind]}
+                      </span>
+                      <span className="font-mono text-xs tabular-nums text-slate-600">
+                        {ev.start.toFixed(2)}–{ev.end.toFixed(2)}s
+                      </span>
+                      <span className="flex-1 text-xs text-slate-600">
+                        {ev.detail} · 신뢰도 {(ev.confidence * 100).toFixed(0)}%
+                      </span>
+                      {isAccepted ? (
+                        <span className="text-xs font-semibold text-emerald-700">
+                          ✓ 채택됨
+                        </span>
+                      ) : isDismissed ? (
+                        <span className="text-xs text-slate-400">기각됨</span>
+                      ) : (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => acceptDetection(idx)}
+                            className="rounded border border-emerald-300 bg-white px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                          >
+                            채택
+                          </button>
+                          <button
+                            onClick={() => dismissDetection(idx)}
+                            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50"
+                          >
+                            기각
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                <p className="mt-2 text-xs text-slate-500">
+                  채택 시 「반복→음절 반복(AD)」 「연장→연장(AD)」 「막힘→막힘(AD)」
+                  으로 태그에 추가됩니다. 유형이 다르면 채택 후 태그에서 수정하세요.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 태그 리스트 */}
         {tags.length > 0 && (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -419,16 +658,16 @@ export default function FluencyPage() {
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <ResultBox
-                label="발생 횏수 전체"
+                label="발생 횟수 전체"
                 value={`${tags.length} 회`}
               />
               <ResultBox
-                label="말더듬성 (SS)"
+                label="비정상적 비유창 (AD)"
                 value={`${stutteringCount} 회`}
                 accent="rose"
               />
               <ResultBox
-                label="정상적 비유창"
+                label="정상적 비유창 (ND)"
                 value={`${normalDisfluency} 회`}
                 accent="blue"
               />
@@ -556,11 +795,11 @@ export default function FluencyPage() {
                     {t.label}
                     {t.isStuttering ? (
                       <span className="ml-2 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">
-                        말더듬성
+                        AD 비정상적
                       </span>
                     ) : (
                       <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-800">
-                        정상적
+                        ND 정상적
                       </span>
                     )}
                   </p>
