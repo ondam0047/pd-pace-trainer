@@ -236,3 +236,30 @@ body {
   .vl-crest-cap { font-size: 10px; letter-spacing: 0.14em; }
   .vl-category-count { font-size: 10px; padding: 4px 9px; }
 }
+
+/* 보고서 인쇄: .fl-report 영역만 출력 */
+@media print {
+  body * { visibility: hidden; }
+  .fl-report, .fl-report * { visibility: visible; }
+  .fl-report {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  .no-print { display: none !important; }
+  .fl-report input,
+  .fl-report select,
+  .fl-report textarea {
+    border: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+    -webkit-appearance: none;
+    appearance: none;
+    resize: none;
+    color: #0f172a !important;
+  }
+}
