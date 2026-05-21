@@ -3,12 +3,38 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import SaveToHistory from "@/components/SaveToHistory";
+import { decodeAudioFile } from "@/components/audioFile";
 
 const VOICE_THRESHOLD = 0.008;
 const END_SILENCE_MS = 500;
 const MIN_PHONATION_SEC = 1.0;
 const MAX_PHONATION_SEC = 60.0;
 const MAX_TRIALS = 3;
+
+// 디코드된 버퍼에서 최장 지속발성 구간(내부 묵음 < END_SILENCE_MS 허용) 길이 산출
+function mptFromBuffer(data: Float32Array, sr: number): number {
+  const win = Math.round(sr * 0.02); // 20ms 프레임
+  if (win <= 0) return 0;
+  const gapFrames = Math.ceil((END_SILENCE_MS / 1000) * sr / win);
+  let best = 0;
+  let runStart = -1;
+  let lastVoiced = -1;
+  let i = 0;
+  for (let start = 0; start + win <= data.length; start += win, i++) {
+    let sumSq = 0;
+    for (let j = 0; j < win; j++) sumSq += data[start + j] * data[start + j];
+    const rms = Math.sqrt(sumSq / win);
+    if (rms > VOICE_THRESHOLD) {
+      if (runStart < 0) runStart = i;
+      lastVoiced = i;
+    } else if (runStart >= 0 && i - lastVoiced > gapFrames) {
+      best = Math.max(best, ((lastVoiced - runStart + 1) * win) / sr);
+      runStart = -1;
+    }
+  }
+  if (runStart >= 0) best = Math.max(best, ((lastVoiced - runStart + 1) * win) / sr);
+  return Math.min(MAX_PHONATION_SEC, best);
+}
 
 type Trial = { duration: number; timestamp: number };
 type Phase = "idle" | "waiting" | "phonating" | "done";
@@ -121,6 +147,36 @@ export default function MptPage() {
     setCurrentSec(0);
   }, [stopMic]);
 
+  const analyzeFile = useCallback(async (file: File) => {
+    setErrorMsg(null);
+    try {
+      const { data, sampleRate } = await decodeAudioFile(file);
+      const dur = mptFromBuffer(data, sampleRate);
+      if (dur < MIN_PHONATION_SEC) {
+        setErrorMsg(
+          `발성 구간(≥${MIN_PHONATION_SEC}초)을 찾지 못했습니다. 지속 모음 발성이 담긴 파일을 사용하세요.`,
+        );
+        return;
+      }
+      setTrials((prev) => [...prev, { duration: dur, timestamp: Date.now() }]);
+      setCurrentSec(dur);
+      phaseRef.current = "done";
+      setPhase("done");
+    } catch (err) {
+      console.error(err);
+      setErrorMsg("오디오 파일을 분석할 수 없습니다. 다른 파일을 시도하세요.");
+    }
+  }, []);
+
+  const onFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (file && trials.length < MAX_TRIALS) analyzeFile(file);
+    },
+    [analyzeFile, trials.length],
+  );
+
   const removeTrial = useCallback((idx: number) => {
     setTrials((prev) => prev.filter((_, i) => i !== idx));
   }, []);
@@ -150,7 +206,7 @@ export default function MptPage() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-emerald-700">🟢 호흡·발성 효율</p>
           <h1 className="mt-2 text-3xl font-bold text-slate-900">MPT — 최대발성지속시간</h1>
-          <p className="mt-2 max-w-3xl text-slate-600">깊이 숨을 들이마시고 “아—”를 최대한 길게 발성하세요. 발성을 멈추면 자동 종료되며 3회 측정해 평균값을 산출합니다.</p>
+          <p className="mt-2 max-w-3xl text-slate-600">깊이 숨을 들이마시고 “아—”를 최대한 길게 발성하세요. 발성을 멈추면 자동 종료되며 3회 측정해 평균값을 산출합니다. 미리 녹음한 파일을 업로드하면 최장 지속발성 구간을 자동 측정합니다.</p>
         </div>
         {errorMsg && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{errorMsg}</div>}
 
@@ -184,9 +240,17 @@ export default function MptPage() {
           )}
 
           {phase === "idle" && (
-            <button onClick={start} disabled={trials.length >= MAX_TRIALS} className="w-full rounded-xl bg-emerald-600 px-6 py-4 text-lg font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
-              {trials.length === 0 ? "측정 시작" : trials.length >= MAX_TRIALS ? "3회 측정 완료" : `${trials.length + 1}회 측정 시작`}
-            </button>
+            <div className="space-y-3">
+              <button onClick={start} disabled={trials.length >= MAX_TRIALS} className="w-full rounded-xl bg-emerald-600 px-6 py-4 text-lg font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+                {trials.length === 0 ? "측정 시작" : trials.length >= MAX_TRIALS ? "3회 측정 완료" : `${trials.length + 1}회 측정 시작`}
+              </button>
+              {trials.length < MAX_TRIALS && (
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-3 text-sm font-medium text-slate-600 hover:border-emerald-400 hover:bg-emerald-50">
+                  📁 또는 발성 녹음 파일 업로드 (최장 지속발성 자동 측정)
+                  <input type="file" accept="audio/*" onChange={onFileChange} className="hidden" />
+                </label>
+              )}
+            </div>
           )}
           {phase === "waiting" && (
             <div className="space-y-3">
@@ -205,6 +269,12 @@ export default function MptPage() {
               <p className="text-center text-sm font-medium text-blue-700">✓ 이번 회기: {currentSec.toFixed(2)}초</p>
               {trials.length < MAX_TRIALS && (
                 <button onClick={start} className="w-full rounded-xl bg-emerald-600 px-6 py-4 text-lg font-semibold text-white hover:bg-emerald-700">다음 측정 ({trials.length + 1}/{MAX_TRIALS})</button>
+              )}
+              {trials.length < MAX_TRIALS && (
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  📁 파일 업로드로 다음 측정
+                  <input type="file" accept="audio/*" onChange={onFileChange} className="hidden" />
+                </label>
               )}
               {trials.length >= MAX_TRIALS && (
                 <button onClick={() => { phaseRef.current = "idle"; setPhase("idle"); }} className="w-full rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">결과 확인</button>
