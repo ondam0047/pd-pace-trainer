@@ -471,9 +471,11 @@ export const KIND_LABEL: Record<DisfluencyKind, string> = {
   block: "막힘",
 };
 
-// 음향 탐지 종류 → 유창성 모듈 태그 타입 (AD/ND 분류는 모듈에서)
+// 음향 탐지 종류 → P-FA-II 유형 코드
+//  - 반복(음절 단위) → 반복2 (R2, 비정상적 비유창)
+//  - 연장·막힘 → 비운율적 발성 (DP, 비정상적 비유창)
 export const KIND_TO_TAG: Record<DisfluencyKind, string> = {
-  prolongation: "prolongation",
-  repetition: "syllable_rep",
-  block: "block",
+  prolongation: "DP",
+  repetition: "R2",
+  block: "DP",
 };

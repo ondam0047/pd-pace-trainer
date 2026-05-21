@@ -15,80 +15,98 @@ import {
   type DetectedDisfluency,
 } from "@/components/fluency/disfluencyDetector";
 
-type DisfluencyType =
-  | "syllable_rep"
-  | "word_rep"
-  | "phrase_rep"
-  | "prolongation"
-  | "block"
-  | "revision";
+// P-FA-II (파라다이스-유창성 검사 II) 비유창성 유형
+//  - ND (정상적 비유창): 주저(H)·간투사(I)·미완성/수정(UR)·반복1(R1)
+//  - AD (비정상적 비유창): 반복2(R2)·비운율적 발성(DP)
+//  - ND 유형도 질적 양상(긴장·탈출행동) 동반 시 AD 로 산정 (hasTension)
+type DisfluencyType = "H" | "I" | "UR" | "R1" | "R2" | "DP";
 
 const TYPES: {
   id: DisfluencyType;
+  code: string;
   label: string;
   shortLabel: string;
   key: string;
-  isStuttering: boolean;
+  baseCategory: "ND" | "AD"; // 질적 양상 없을 때의 기본 범주
   description: string;
   color: string;
 }[] = [
   {
-    id: "syllable_rep",
-    label: "음절 반복",
-    shortLabel: "ㅈㅈ-ㅈ",
+    id: "H",
+    code: "H",
+    label: "주저",
+    shortLabel: "H",
     key: "1",
-    isStuttering: true,
-    description: "예: 지-지-지구",
+    baseCategory: "ND",
+    description: "1~3초 정도 머뭇거림 (예: … 그게)",
+    color: "bg-sky-500 hover:bg-sky-600",
+  },
+  {
+    id: "I",
+    code: "I",
+    label: "간투사",
+    shortLabel: "I",
+    key: "2",
+    baseCategory: "ND",
+    description: "의미 없는 삽입어 (예: 음·어·그)",
+    color: "bg-cyan-500 hover:bg-cyan-600",
+  },
+  {
+    id: "UR",
+    code: "U/Ur",
+    label: "미완성·수정",
+    shortLabel: "UR",
+    key: "3",
+    baseCategory: "ND",
+    description: "발화 미완성 또는 수정 (예: 난 아니 제가)",
+    color: "bg-blue-500 hover:bg-blue-600",
+  },
+  {
+    id: "R1",
+    code: "R1",
+    label: "반복1",
+    shortLabel: "R1",
+    key: "4",
+    baseCategory: "ND",
+    description: "다음절 낱말·구·어절 반복 (예: 어제-어제)",
+    color: "bg-teal-500 hover:bg-teal-600",
+  },
+  {
+    id: "R2",
+    code: "R2",
+    label: "반복2",
+    shortLabel: "R2",
+    key: "5",
+    baseCategory: "AD",
+    description: "음절·낱말부분·일음절 낱말 반복 (예: 지-지-지구)",
     color: "bg-rose-500 hover:bg-rose-600",
   },
   {
-    id: "word_rep",
-    label: "단음절단어 반복",
-    shortLabel: "난-난",
-    key: "2",
-    isStuttering: true,
-    description: "예: 나-나-나는",
-    color: "bg-orange-500 hover:bg-orange-600",
-  },
-  {
-    id: "phrase_rep",
-    label: "다음절단어·구 반복",
-    shortLabel: "구구-구",
-    key: "3",
-    isStuttering: false,
-    description: "예: 어제-어제… / 정상적 비유창",
-    color: "bg-amber-500 hover:bg-amber-600",
-  },
-  {
-    id: "prolongation",
-    label: "연장",
-    shortLabel: "ㄴ—",
-    key: "4",
-    isStuttering: true,
-    description: "예: 나—는",
-    color: "bg-purple-500 hover:bg-purple-600",
-  },
-  {
-    id: "block",
-    label: "막힘",
-    shortLabel: "・・・",
-    key: "5",
-    isStuttering: true,
-    description: "예: 소리 없이 입만 움직임",
-    color: "bg-red-700 hover:bg-red-800",
-  },
-  {
-    id: "revision",
-    label: "수정",
-    shortLabel: "↻",
+    id: "DP",
+    code: "DP",
+    label: "비운율적 발성",
+    shortLabel: "DP",
     key: "6",
-    isStuttering: false,
-    description: "예: ‘난 아니 제가’ / 정상적 비유창",
-    color: "bg-blue-500 hover:bg-blue-600",
+    baseCategory: "AD",
+    description: "연장·막힘·깨진 낱말 (예: 나—는, 소리 없이 막힘)",
+    color: "bg-red-700 hover:bg-red-800",
   },
 ];
 
-type Tag = { time: number; type: DisfluencyType; timestamp: number };
+// 한 태그의 P-FA-II 범주 결정 (질적 양상 동반 시 ND→AD)
+function classifyTag(type: DisfluencyType, hasTension: boolean): "ND" | "AD" {
+  const def = TYPES.find((t) => t.id === type);
+  if (!def) return "ND";
+  if (def.baseCategory === "AD") return "AD";
+  return hasTension ? "AD" : "ND";
+}
+
+type Tag = {
+  time: number;
+  type: DisfluencyType;
+  hasTension: boolean;
+  timestamp: number;
+};
 
 export default function FluencyPage() {
   const [phase, setPhase] = useState<"idle" | "recording" | "done">("idle");
@@ -102,12 +120,18 @@ export default function FluencyPage() {
   const [accepted, setAccepted] = useState<Set<number>>(new Set());
   const [analyzing, setAnalyzing] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  const [tensionMode, setTensionMode] = useState(false);
 
   const asr = useKoreanASR();
 
   const startTimeRef = useRef(0);
   const timerRef = useRef<number | null>(null);
   const phaseRef = useRef<"idle" | "recording" | "done">("idle");
+  const tensionRef = useRef(false);
+
+  useEffect(() => {
+    tensionRef.current = tensionMode;
+  }, [tensionMode]);
 
   // 오디오 녹음 (음향 비유창 탐지용)
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -233,12 +257,21 @@ export default function FluencyPage() {
   const addTag = useCallback((type: DisfluencyType) => {
     if (phaseRef.current !== "recording") return;
     const t = (performance.now() - startTimeRef.current) / 1000;
-    setTags((prev) => [...prev, { time: t, type, timestamp: Date.now() }]);
+    setTags((prev) => [
+      ...prev,
+      { time: t, type, hasTension: tensionRef.current, timestamp: Date.now() },
+    ]);
   }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (phaseRef.current !== "recording") return;
+      // 0 / t = 질적 양상(긴장) 토글
+      if (e.key === "0" || e.key === "t" || e.key === "T") {
+        e.preventDefault();
+        setTensionMode((v) => !v);
+        return;
+      }
       const type = TYPES.find((tt) => tt.key === e.key);
       if (type) {
         e.preventDefault();
@@ -251,6 +284,13 @@ export default function FluencyPage() {
 
   const removeTag = (idx: number) =>
     setTags((prev) => prev.filter((_, i) => i !== idx));
+
+  const toggleTagTension = (idx: number) =>
+    setTags((prev) =>
+      prev.map((t, i) =>
+        i === idx ? { ...t, hasTension: !t.hasTension } : t,
+      ),
+    );
 
   const reset = () => {
     if (timerRef.current !== null) clearInterval(timerRef.current);
@@ -266,18 +306,20 @@ export default function FluencyPage() {
     setDismissed(new Set());
     setAccepted(new Set());
     setElapsed(0);
+    setTensionMode(false);
     asr.reset();
   };
 
-  // 탐지 후보 → 태그로 채택
+  // 탐지 후보 → 태그로 채택 (R2·DP 는 기본 AD)
   const acceptDetection = (idx: number) => {
     const ev = detected[idx];
     if (!ev) return;
     const type = KIND_TO_TAG[ev.kind] as DisfluencyType;
     setTags((prev) =>
-      [...prev, { time: ev.start, type, timestamp: Date.now() + idx }].sort(
-        (a, b) => a.time - b.time,
-      ),
+      [
+        ...prev,
+        { time: ev.start, type, hasTension: false, timestamp: Date.now() + idx },
+      ].sort((a, b) => a.time - b.time),
     );
     setAccepted((prev) => new Set(prev).add(idx));
   };
@@ -318,11 +360,12 @@ export default function FluencyPage() {
 
   const exportCSV = () => {
     if (tags.length === 0) return;
-    const lines = ["time_sec,type,is_stuttering"];
+    const lines = ["time_sec,code,type,category"];
     for (const t of tags) {
       const meta = TYPES.find((tt) => tt.id === t.type);
+      const cat = classifyTag(t.type, t.hasTension);
       lines.push(
-        `${t.time.toFixed(2)},${meta?.label ?? t.type},${meta?.isStuttering ? 1 : 0}`,
+        `${t.time.toFixed(2)},${meta?.code ?? t.type},${meta?.label ?? t.type}${t.hasTension ? "(긴장)" : ""},${cat}`,
       );
     }
     const blob = new Blob([lines.join("\n")], {
@@ -332,7 +375,7 @@ export default function FluencyPage() {
     const a = document.createElement("a");
     a.href = url;
     const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    a.download = `fluency_${ts}.csv`;
+    a.download = `pfa2_fluency_${ts}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -342,31 +385,27 @@ export default function FluencyPage() {
   const syllablesNum = parseInt(syllables, 10);
   const validSyll = !isNaN(syllablesNum) && syllablesNum > 0;
 
+  // 유형별 빈도
   const counts: Record<DisfluencyType, number> = {
-    syllable_rep: 0, word_rep: 0, phrase_rep: 0,
-    prolongation: 0, block: 0, revision: 0,
+    H: 0, I: 0, UR: 0, R1: 0, R2: 0, DP: 0,
   };
   for (const tag of tags) counts[tag.type]++;
 
-  const stutteringCount = TYPES.filter((t) => t.isStuttering).reduce(
-    (s, t) => s + counts[t.id],
-    0,
-  );
-  const normalDisfluency = TYPES.filter((t) => !t.isStuttering).reduce(
-    (s, t) => s + counts[t.id],
-    0,
-  );
-  const SSPct = validSyll ? (stutteringCount / syllablesNum) * 100 : 0;
-  const severity =
-    SSPct === 0
-      ? "-"
-      : SSPct < 2
-        ? "정상 / 경도"
-        : SSPct < 5
-          ? "중도"
-          : SSPct < 8
-            ? "중·고도"
-            : "고도";
+  // P-FA-II 범주별 빈도 (질적 양상 반영)
+  const ndCount = tags.filter(
+    (t) => classifyTag(t.type, t.hasTension) === "ND",
+  ).length;
+  const adCount = tags.filter(
+    (t) => classifyTag(t.type, t.hasTension) === "AD",
+  ).length;
+
+  // P-FA-II 점수: ND점수 = ND빈도/목표음절×100,
+  //               AD점수 = AD빈도/목표음절×100×1.5,
+  //               총점 = ND점수 + AD점수
+  const AD_WEIGHT = 1.5;
+  const ndScore = validSyll ? (ndCount / syllablesNum) * 100 : 0;
+  const adScore = validSyll ? (adCount / syllablesNum) * 100 * AD_WEIGHT : 0;
+  const totalScore = ndScore + adScore;
 
   const mm = Math.floor(elapsed / 60);
   const ss = Math.floor(elapsed % 60);
@@ -388,9 +427,10 @@ export default function FluencyPage() {
             유창성 분석
           </h1>
           <p className="mt-2 max-w-3xl text-slate-600">
-            임상가가 실시간으로 비유창 이벤트를 태그하면 %SS 와 유형별
-            비율을 자동 계산합니다. 키보드 1–6 또는 버튼으로 태그하고, 세션
-            종료 후 음향 분석이 반복·연장·막힘 후보를 자동 제안합니다 (검토 필수).
+            P-FA-II 기준 비유창 유형(ND 4종·AD 2종)을 실시간 태그하면
+            ND점수·AD점수(×1.5)·총점을 자동 산출합니다. 키보드 1–6 또는
+            버튼으로 태그, <b>0/T 키로 질적 양상(긴장) 토글</b>. 세션 종료 후
+            음향 분석이 반복2·비운율적발성 후보를 자동 제안합니다 (검토 필수).
           </p>
         </div>
 
@@ -405,7 +445,7 @@ export default function FluencyPage() {
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-bold text-slate-900">세션 녹화</h2>
-              <p className="text-xs text-slate-500">키보드 1–6 디스 또는 태그 버튼 클릭</p>
+              <p className="text-xs text-slate-500">키보드 1–6 태그 · 0/T 긴장 토글 · 버튼 클릭</p>
             </div>
             <span
               className={`rounded-full px-3 py-1 text-xs font-semibold ${
@@ -438,16 +478,32 @@ export default function FluencyPage() {
           )}
           {phase === "recording" && (
             <div className="space-y-4">
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <span className="text-xs text-slate-600">
+                  ND 4종 = 파랑 계열 · AD 2종 = 빨강 계열
+                </span>
+                <button
+                  onClick={() => setTensionMode((v) => !v)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    tensionMode
+                      ? "bg-rose-600 text-white"
+                      : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                  }`}
+                  title="질적 양상(긴장) 토글 — 켜면 ND 유형도 AD 로 산정 (키 0/T)"
+                >
+                  {tensionMode ? "● 질적 양상(긴장) ON" : "질적 양상(긴장) OFF"}
+                </button>
+              </div>
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
                 {TYPES.map((t) => (
                   <button
                     key={t.id}
                     onClick={() => addTag(t.id)}
                     className={`flex flex-col items-center rounded-xl p-3 text-white transition ${t.color}`}
-                    title={`${t.label} (키 ${t.key})`}
+                    title={`${t.label} ${t.code} · ${t.baseCategory} (키 ${t.key})`}
                   >
                     <span className="text-2xl font-bold">{t.shortLabel}</span>
-                    <span className="mt-1 text-xs">[{t.key}] {t.label}</span>
+                    <span className="mt-1 text-[11px]">[{t.key}] {t.label}</span>
                   </button>
                 ))}
               </div>
@@ -580,8 +636,9 @@ export default function FluencyPage() {
                   );
                 })}
                 <p className="mt-2 text-xs text-slate-500">
-                  채택 시 「반복→음절 반복(AD)」 「연장→연장(AD)」 「막힘→막힘(AD)」
-                  으로 태그에 추가됩니다. 유형이 다르면 채택 후 태그에서 수정하세요.
+                  채택 시 「반복→반복2(R2)」 「연장·막힘→비운율적 발성(DP)」 으로
+                  태그에 추가됩니다(둘 다 AD). 다음절 낱말·구 반복(R1)이면 채택
+                  후 태그에서 수정하세요.
                 </p>
               </div>
             )}
@@ -608,6 +665,7 @@ export default function FluencyPage() {
                   <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                     <th className="py-2 pr-3">시간</th>
                     <th className="py-2 pr-3">유형</th>
+                    <th className="py-2 pr-3">범주</th>
                     <th className="py-2"></th>
                   </tr>
                 </thead>
@@ -618,6 +676,8 @@ export default function FluencyPage() {
                     .map((tag, i) => {
                       const meta = TYPES.find((t) => t.id === tag.type);
                       const realIdx = tags.length - 1 - i;
+                      const cat = classifyTag(tag.type, tag.hasTension);
+                      const canTension = meta?.baseCategory === "ND";
                       return (
                         <tr
                           key={tag.timestamp}
@@ -627,14 +687,37 @@ export default function FluencyPage() {
                             {tag.time.toFixed(2)}s
                           </td>
                           <td className="py-1.5 pr-3 text-slate-700">
+                            <span className="font-mono text-xs text-slate-500">
+                              {meta?.code}
+                            </span>{" "}
                             {meta?.label}
-                            {meta?.isStuttering && (
-                              <span className="ml-2 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">
-                                SS
+                            {tag.hasTension && (
+                              <span className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-800">
+                                긴장
                               </span>
                             )}
                           </td>
+                          <td className="py-1.5 pr-3">
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                cat === "AD"
+                                  ? "bg-rose-100 text-rose-800"
+                                  : "bg-blue-100 text-blue-800"
+                              }`}
+                            >
+                              {cat}
+                            </span>
+                          </td>
                           <td className="py-1.5 text-right">
+                            {canTension && (
+                              <button
+                                onClick={() => toggleTagTension(realIdx)}
+                                className="mr-2 text-xs text-slate-400 hover:text-amber-600"
+                                title="질적 양상(긴장) 토글 → ND/AD 전환"
+                              >
+                                긴장↕
+                              </button>
+                            )}
                             <button
                               onClick={() => removeTag(realIdx)}
                               className="text-xs text-slate-400 hover:text-rose-600"
@@ -663,12 +746,12 @@ export default function FluencyPage() {
               />
               <ResultBox
                 label="비정상적 비유창 (AD)"
-                value={`${stutteringCount} 회`}
+                value={`${adCount} 회`}
                 accent="rose"
               />
               <ResultBox
                 label="정상적 비유창 (ND)"
-                value={`${normalDisfluency} 회`}
+                value={`${ndCount} 회`}
                 accent="blue"
               />
               <ResultBox
@@ -678,15 +761,21 @@ export default function FluencyPage() {
             </div>
 
             <h4 className="mt-5 mb-2 text-sm font-semibold text-slate-700">
-              유형별 횟수
+              유형별 횟수 (P-FA-II 코드)
             </h4>
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
               {TYPES.map((t) => (
                 <div
                   key={t.id}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center"
+                  className={`rounded-lg border px-3 py-2 text-center ${
+                    t.baseCategory === "AD"
+                      ? "border-rose-200 bg-rose-50"
+                      : "border-blue-200 bg-blue-50"
+                  }`}
                 >
-                  <p className="text-xs text-slate-600">{t.label}</p>
+                  <p className="text-xs text-slate-600">
+                    <span className="font-mono">{t.code}</span> {t.label}
+                  </p>
                   <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">
                     {counts[t.id]}
                   </p>
@@ -696,7 +785,7 @@ export default function FluencyPage() {
 
             <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4">
               <h4 className="mb-3 text-sm font-semibold text-amber-900">
-                %SS 계산 (이 결과의 핵심)
+                P-FA-II 점수 산출 (목표음절수 기준)
               </h4>
               {asr.supported ? (
                 <div className="mb-3 space-y-2">
@@ -731,7 +820,7 @@ export default function FluencyPage() {
                 </p>
               )}
               <label className="mb-2 block text-sm font-medium text-amber-900">
-                전체 음절 수 (자동 카운트, 수정 가능)
+                목표 음절 수 (자동 카운트, 수정 가능)
               </label>
               <input
                 type="number"
@@ -743,31 +832,44 @@ export default function FluencyPage() {
               />
               {validSyll && (
                 <>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
                     <ResultBox
-                      label="%SS"
-                      value={`${SSPct.toFixed(2)} %`}
-                      sub={`${stutteringCount} / ${syllablesNum} 음절`}
-                      accent="rose"
-                      highlight
+                      label="ND 점수"
+                      value={ndScore.toFixed(2)}
+                      sub={`${ndCount} / ${syllablesNum} × 100`}
+                      accent="blue"
                     />
                     <ResultBox
-                      label="중증도 추정"
-                      value={severity}
-                      sub="Riley SSI-4 프리퀴시 항목 기준"
+                      label="AD 점수 (×1.5)"
+                      value={adScore.toFixed(2)}
+                      sub={`${adCount} / ${syllablesNum} × 100 × 1.5`}
+                      accent="rose"
+                    />
+                    <ResultBox
+                      label="총점 (필수과제)"
+                      value={totalScore.toFixed(2)}
+                      sub="ND점수 + AD점수"
                       accent="amber"
                       highlight
                     />
                   </div>
+                  <p className="mt-3 rounded-lg border border-amber-200 bg-white/70 px-3 py-2 text-xs text-amber-900">
+                    ⓘ 백분위·중증도(약함/중간/심함)는 P-FA-II <b>지침서의
+                    연령대별 규준표</b>에 총점을 대조해 판정하세요. 규준표는
+                    저작권 자료라 본 도구에 포함하지 않았습니다. AD 가중치(×1.5)는
+                    지침서 산출식 기준이며, 사용 중인 지침서와 대조 확인을
+                    권장합니다.
+                  </p>
                   <div className="mt-4">
                     <SaveToHistory
                       moduleId="fluency"
                       summary={{
-                        "음절수": syllablesNum,
-                        "%SS": +SSPct.toFixed(2),
-                        "말더듬성": stutteringCount,
-                        "정상비유창": normalDisfluency,
-                        "중증도": severity,
+                        "목표음절수": syllablesNum,
+                        "ND점수": +ndScore.toFixed(2),
+                        "AD점수": +adScore.toFixed(2),
+                        "총점": +totalScore.toFixed(2),
+                        "ND빈도": ndCount,
+                        "AD빈도": adCount,
                         "녹화시간(초)": +elapsed.toFixed(1),
                       }}
                     />
@@ -792,8 +894,11 @@ export default function FluencyPage() {
                 </span>
                 <div className="flex-1">
                   <p className="font-semibold">
+                    <span className="font-mono text-xs text-slate-500">
+                      {t.code}
+                    </span>{" "}
                     {t.label}
-                    {t.isStuttering ? (
+                    {t.baseCategory === "AD" ? (
                       <span className="ml-2 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">
                         AD 비정상적
                       </span>
@@ -807,9 +912,16 @@ export default function FluencyPage() {
                 </div>
               </div>
             ))}
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <p className="font-semibold text-slate-700">질적 양상(긴장) 처리</p>
+              ND 유형(주저·간투사·미완성/수정·반복1)이라도 긴장·탈출행동 등
+              질적 양상이 동반되면 AD 로 산정합니다. 녹화 중 0/T 키 또는
+              토글 버튼으로 표시하고, 태그 목록에서 「긴장↕」로 개별 전환할 수
+              있습니다.
+            </div>
             <p className="mt-3 text-xs text-slate-500">
-              근거: Riley (2009) SSI-4 / 심현섭 (2010) 한국판 파라다이스
-              유창성 검사 (P-FA-II)
+              근거: 심현섭·신문자·이은주 (2010) 파라다이스-유창성 검사 II
+              (P-FA-II). AD 가중치(×1.5)·연령대별 규준은 지침서 기준.
             </p>
           </div>
         </details>
