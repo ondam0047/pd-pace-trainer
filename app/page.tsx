@@ -46,7 +46,7 @@ const MODULES: Module[] = [
   { href: "/voice-quality", title: "음질 분석", subtitle: "Voice Quality", description: "jitter · shimmer · HNR 자동 추출", color: "blue", status: "ready" },
   { href: "/mpt", title: "MPT", subtitle: "Maximum Phonation Time", description: "최대발성지속시간 · 3회 평균 자동 계산", color: "emerald", status: "ready" },
   { href: "/speech-rate", title: "말속도 분석", subtitle: "Speech Rate Suite", description: "녹음 → VAD 자동 분할 + ASR 음절 카운트 + 전체/조음속도", color: "amber", status: "ready" },
-  { href: "/fluency", title: "유창성 분석", subtitle: "Fluency", description: "%SS 자동 계산 + 비유창 6종 실시간 태그 + ASR 음절 카운트", color: "amber", status: "ready" },
+  { href: "/fluency", title: "유창성 분석", subtitle: "Fluency · P-FA-II", description: "음향·전사 1차 자동 태깅 → 검토·수정 → P-FA-II 보고서 출력", color: "amber", status: "ready" },
   { href: "/spontaneous", title: "자발화 언어/조음 분석", subtitle: "Language Sample Analysis", description: "한국어 전사 기반 자발화 분석 (내장 외부 도구)", color: "amber", status: "ready" },
   { href: "/pace", title: "페이스 조절 훈련", subtitle: "Cued Pacing", description: "시각·청각·혼합 단서 훈련 · 세션 기록", color: "rose", status: "ready" },
   { href: "/daf", title: "DAF 훈련기", subtitle: "Delayed Auditory Feedback", description: "50–500ms 지연 청각피드백 (말더듬·파킨슨)", color: "rose", status: "ready" },
