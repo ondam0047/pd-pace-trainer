@@ -10,6 +10,7 @@ import {
   type VoiceQualityResult,
 } from "@/components/voiceQuality/analyzer";
 import SaveToHistory from "@/components/SaveToHistory";
+import { decodeAudioFile } from "@/components/audioFile";
 
 const RECORD_DURATION_SEC = 3;
 
@@ -109,6 +110,39 @@ export default function VoiceQualityPage() {
     }
   }, [cleanup]);
 
+  const analyzeFile = useCallback(async (file: File) => {
+    setErrorMsg(null);
+    setCurrentResult(EMPTY_RESULT);
+    setPhase("analyzing");
+    try {
+      const { data, sampleRate } = await decodeAudioFile(file);
+      const result = analyzeVoiceQuality(data, sampleRate);
+      if (result.validFrames === 0) {
+        setErrorMsg(
+          "유효한 발성 구간을 찾지 못했습니다. 안정된 모음 발성이 담긴 파일을 사용하세요.",
+        );
+        setPhase("idle");
+        return;
+      }
+      setCurrentResult(result);
+      setTrials((prev) => [...prev, { timestamp: Date.now(), result }]);
+      setPhase("done");
+    } catch (err) {
+      console.error(err);
+      setErrorMsg("오디오 파일을 분석할 수 없습니다. 다른 파일을 시도하세요.");
+      setPhase("idle");
+    }
+  }, []);
+
+  const onFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (file) analyzeFile(file);
+    },
+    [analyzeFile],
+  );
+
   const reset = useCallback(() => {
     setTrials([]);
     setCurrentResult(EMPTY_RESULT);
@@ -127,7 +161,7 @@ export default function VoiceQualityPage() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-blue-700">🔵 음향 분석</p>
           <h1 className="mt-2 text-3xl font-bold text-slate-900">음질 분석</h1>
-          <p className="mt-2 max-w-3xl text-slate-600">3초간 안정된 아— 발성을 녹음하면 jitter, shimmer, HNR을 자동 산출합니다.</p>
+          <p className="mt-2 max-w-3xl text-slate-600">3초간 안정된 아— 발성을 녹음하거나 녹음 파일을 업로드하면 jitter, shimmer, HNR을 자동 산출합니다.</p>
           <p className="mt-1 max-w-3xl text-xs text-amber-700">⚠ 브라우저 계산이므로 Praat보다 정확도가 낮을 수 있습니다. 임상 획립은 Praat 결과와 대조하세요.</p>
         </div>
         {errorMsg && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{errorMsg}</div>}
@@ -155,14 +189,24 @@ export default function VoiceQualityPage() {
           )}
 
           {phase === "idle" && (
-            <button onClick={start} className="w-full rounded-xl bg-blue-600 px-6 py-4 text-lg font-semibold text-white hover:bg-blue-700">3초 녹음 시작</button>
+            <div className="space-y-3">
+              <button onClick={start} className="w-full rounded-xl bg-blue-600 px-6 py-4 text-lg font-semibold text-white hover:bg-blue-700">3초 녹음 시작</button>
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-3 text-sm font-medium text-slate-600 hover:border-blue-400 hover:bg-blue-50">
+                📁 또는 오디오 파일 업로드 (지속 모음 발성)
+                <input type="file" accept="audio/*" onChange={onFileChange} className="hidden" />
+              </label>
+            </div>
           )}
           {phase === "analyzing" && (
             <p className="text-center text-amber-700 animate-pulse">분석 중...</p>
           )}
           {phase === "done" && (
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <button onClick={start} className="flex-1 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700">다시 측정</button>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                📁 파일 업로드
+                <input type="file" accept="audio/*" onChange={onFileChange} className="hidden" />
+              </label>
               <button onClick={reset} className="rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">전체 초기화</button>
             </div>
           )}

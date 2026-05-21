@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { yinPitch } from "./pitch/yin";
 import { freqToNoteName, semitonesBetween } from "./pitch/noteUtils";
 import SaveToHistory from "./SaveToHistory";
+import { decodeAudioFile } from "./audioFile";
 
 const DURATION_OPTIONS = [15, 30, 45, 60] as const;
 type Duration = (typeof DURATION_OPTIONS)[number];
@@ -113,6 +114,8 @@ export default function PitchMeter() {
   const [dbLower, setDbLower] = useState(65);
   const [dbUpper, setDbUpper] = useState(80);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [fileDuration, setFileDuration] = useState(0); // >0 이면 업로드 파일 분석 결과
+  const [fileName, setFileName] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{
     chart: "pitch" | "intensity";
     bound: "low" | "high";
@@ -235,6 +238,8 @@ export default function PitchMeter() {
       setCurrentF0(null);
       setCurrentDb(null);
       setElapsed(0);
+      setFileDuration(0);
+      setFileName(null);
       startTimeRef.current = performance.now();
       setIsRecording(true);
       rafRef.current = requestAnimationFrame(tick);
@@ -253,7 +258,56 @@ export default function PitchMeter() {
     setCurrentF0(null);
     setCurrentDb(null);
     setElapsed(0);
+    setFileDuration(0);
+    setFileName(null);
   }, [stop]);
+
+  // 업로드 파일 오프라인 분석 (프레임별 F0 + dB)
+  const analyzeFile = useCallback(async (file: File) => {
+    setErrorMsg(null);
+    stop();
+    try {
+      const { data, sampleRate, duration: dur } = await decodeAudioFile(file);
+      const win = fftSizeRef.current;
+      const hop = Math.max(1, Math.round(sampleRate * 0.02)); // 20ms
+      const out: Sample[] = [];
+      for (let start = 0; start + win <= data.length; start += hop) {
+        const frame = data.subarray(start, start + win);
+        const f0 = yinPitch(frame, sampleRate);
+        let sumSq = 0;
+        for (let i = 0; i < frame.length; i++) sumSq += frame[i] * frame[i];
+        const rms = Math.sqrt(sumSq / frame.length);
+        const dbSPL = (rms > 0 ? 20 * Math.log10(rms) : -100) + DB_OFFSET;
+        const validF0 = f0 > F_MIN && f0 < F_MAX && isFinite(f0);
+        const validDb = dbSPL > DB_MIN && dbSPL < DB_MAX;
+        if (validF0 || validDb)
+          out.push({
+            t: start / sampleRate,
+            f0: validF0 ? f0 : null,
+            db: validDb ? dbSPL : null,
+          });
+      }
+      samplesRef.current = out;
+      setSamples(out);
+      setFileDuration(dur);
+      setFileName(file.name);
+      setCurrentF0(null);
+      setCurrentDb(null);
+      setElapsed(0);
+    } catch (err) {
+      console.error(err);
+      setErrorMsg("오디오 파일을 분석할 수 없습니다. 다른 파일을 시도하세요.");
+    }
+  }, [stop]);
+
+  const onFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (file) analyzeFile(file);
+    },
+    [analyzeFile],
+  );
 
   useEffect(() => {
     return () => stop();
@@ -362,22 +416,26 @@ export default function PitchMeter() {
     URL.revokeObjectURL(url);
   }, [samples, lowerBound, upperBound, dbLower, dbUpper]);
 
+  // 차트 시간축: 업로드 파일이면 파일 길이, 아니면 선택한 측정 시간
+  const effDur = fileDuration > 0 ? fileDuration : duration;
+
   const pitchPath = useMemo(
-    () => buildPath(samples, "f0", pitchScale.toY, duration),
-    [samples, pitchScale, duration],
+    () => buildPath(samples, "f0", pitchScale.toY, effDur),
+    [samples, pitchScale, effDur],
   );
   const dbPath = useMemo(
-    () => buildPath(samples, "db", dbScale.toY, duration),
-    [samples, dbScale, duration],
+    () => buildPath(samples, "db", dbScale.toY, effDur),
+    [samples, dbScale, effDur],
   );
 
   const gridTimes = useMemo(() => {
-    const step = duration <= 15 ? 3 : duration <= 30 ? 5 : 10;
+    const step = effDur <= 15 ? 3 : effDur <= 30 ? 5 : effDur <= 60 ? 10 : 20;
     const out: number[] = [];
-    for (let t = 0; t <= duration; t += step) out.push(t);
-    if (out[out.length - 1] !== duration) out.push(duration);
+    for (let t = 0; t <= effDur; t += step) out.push(Math.round(t));
+    const last = Math.round(effDur);
+    if (out[out.length - 1] !== last) out.push(last);
     return out;
-  }, [duration]);
+  }, [effDur]);
 
   return (
     <div className="space-y-4">
@@ -459,6 +517,20 @@ export default function PitchMeter() {
               정지
             </button>
           )}
+          <label
+            className={`rounded-lg border border-slate-300 bg-white px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 ${
+              isRecording ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+            }`}
+          >
+            파일 업로드
+            <input
+              type="file"
+              accept="audio/*"
+              onChange={onFileChange}
+              disabled={isRecording}
+              className="hidden"
+            />
+          </label>
           <button
             onClick={reset}
             disabled={isRecording}
@@ -485,7 +557,7 @@ export default function PitchMeter() {
       {/* 피치 (F0) 트랙 */}
       <TrackChart
         height={PITCH_H}
-        duration={duration}
+        duration={effDur}
         elapsed={elapsed}
         isRecording={isRecording}
         scale={pitchScale}
@@ -510,7 +582,7 @@ export default function PitchMeter() {
       {/* 강도 (dB) 트랙 — 같은 녹음·같은 시간축 */}
       <TrackChart
         height={INTENSITY_H}
-        duration={duration}
+        duration={effDur}
         elapsed={elapsed}
         isRecording={isRecording}
         scale={dbScale}
@@ -606,6 +678,13 @@ export default function PitchMeter() {
         </div>
       )}
 
+      {!isRecording && fileDuration > 0 && (
+        <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800">
+          📁 파일 분석: <b>{fileName}</b> · 길이 {fileDuration.toFixed(1)}초 ·
+          F0/강도 시계열을 오프라인으로 산출했습니다.
+        </div>
+      )}
+
       {!isRecording && samples.length > 0 && (
         <SaveToHistory
           moduleId="pitch"
@@ -623,7 +702,7 @@ export default function PitchMeter() {
             "강도체류(%)": +dbStats.inRangePct.toFixed(1),
             "강도하한": dbLower,
             "강도상한": dbUpper,
-            "녹음시간(초)": duration,
+            "녹음시간(초)": +effDur.toFixed(1),
           }}
         />
       )}

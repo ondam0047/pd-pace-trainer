@@ -12,6 +12,7 @@ import {
   normalizeTranscript,
 } from "@/components/asr/syllableCount";
 import SaveToHistory from "@/components/SaveToHistory";
+import { decodeAudioFile } from "@/components/audioFile";
 
 type Phase = "idle" | "recording" | "done";
 const DURATION_OPTIONS = [10, 15, 30, 60] as const;
@@ -138,6 +139,36 @@ export default function SpeechRatePage() {
     }
   }, [maxDuration, finalizeAndAnalyze, cleanup, asr]);
 
+  const analyzeFile = useCallback(
+    async (file: File) => {
+      setErrorMsg(null);
+      setResult(null);
+      setEditedTranscript("");
+      setSyllables("");
+      setAutoFilled(true); // 파일 업로드 시 ASR 자동채움 비활성 (전사 직접 입력)
+      try {
+        const { data, sampleRate } = await decodeAudioFile(file);
+        const res = analyzeSpeechRate(data, sampleRate);
+        setResult(res);
+        setPhase("done");
+      } catch (err) {
+        console.error(err);
+        setErrorMsg("오디오 파일을 분석할 수 없습니다. 다른 파일을 시도하세요.");
+        setPhase("idle");
+      }
+    },
+    [],
+  );
+
+  const onFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (file) analyzeFile(file);
+    },
+    [analyzeFile],
+  );
+
   const stopEarly = useCallback(() => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
@@ -203,9 +234,10 @@ export default function SpeechRatePage() {
             말속도 분석
           </h1>
           <p className="mt-2 max-w-3xl text-slate-600">
-            녹음 한 번으로 전체속도 + 조음속도 + 쉬 구간 분석을
-            동시 제공합니다. VAD 로 쉬를 자동 분할하고, 실시간 음성 인식으로
-            음절 수까지 자동 산출합니다.
+            녹음 한 번 또는 녹음 파일 업로드로 전체속도 + 조음속도 + 쉬 구간
+            분석을 동시 제공합니다. VAD 로 쉬를 자동 분할하고, 실시간 녹음 시
+            음성 인식으로 음절 수까지 자동 산출합니다 (파일 업로드는 전사
+            붙여넣기/직접 입력).
           </p>
         </div>
         {errorMsg && (
@@ -260,10 +292,15 @@ export default function SpeechRatePage() {
               >
                 녹음 시작
               </button>
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-3 text-sm font-medium text-slate-600 hover:border-amber-400 hover:bg-amber-50">
+                📁 또는 녹음 파일 업로드
+                <input type="file" accept="audio/*" onChange={onFileChange} className="hidden" />
+              </label>
               <p className="text-xs text-slate-500">
-                아래 &quot;녹음 시작&quot; 를 누른 뒤 대상자에게 낭독 혹은
-                자유발화를 요청하세요. 설정한 시간에 자동 종료되며 조기
-                종료도 가능합니다.
+                &quot;녹음 시작&quot; 후 대상자에게 낭독·자유발화를 요청하세요
+                (설정 시간에 자동 종료, 조기 종료 가능). 또는 미리 녹음한 파일을
+                업로드하면 VAD 로 쉬를 자동 분할합니다. 파일 업로드 시 음절 수는
+                전사를 붙여넣거나 직접 입력하세요.
               </p>
             </div>
           )}
@@ -395,13 +432,17 @@ export default function SpeechRatePage() {
                 </div>
               )}
 
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button
                   onClick={start}
                   className="flex-1 rounded-xl bg-amber-600 px-6 py-3 text-sm font-semibold text-white hover:bg-amber-700"
                 >
                   다시 녹음
                 </button>
+                <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  📁 파일 업로드
+                  <input type="file" accept="audio/*" onChange={onFileChange} className="hidden" />
+                </label>
                 <button
                   onClick={reset}
                   className="rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
