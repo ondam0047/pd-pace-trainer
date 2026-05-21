@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   analyzeVoiceQuality,
   EMPTY_RESULT,
-  NORMAL_RANGES,
+  MDVP_THRESHOLDS,
   getStatus,
+  getHnrStatus,
+  HNR_NORMAL,
   type VoiceQualityResult,
+  type MdvpKey,
 } from "@/components/voiceQuality/analyzer";
 import SaveToHistory from "@/components/SaveToHistory";
 import { decodeAudioFile } from "@/components/audioFile";
@@ -160,8 +163,8 @@ export default function VoiceQualityPage() {
         <Link href="/" className="text-sm text-slate-500 hover:text-slate-900">← Voice Lab 허브로</Link>
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-blue-700">🔵 음향 분석</p>
-          <h1 className="mt-2 text-3xl font-bold text-slate-900">음질 분석</h1>
-          <p className="mt-2 max-w-3xl text-slate-600">3초간 안정된 아— 발성을 녹음하거나 녹음 파일을 업로드하면 jitter, shimmer, HNR을 자동 산출합니다.</p>
+          <h1 className="mt-2 text-3xl font-bold text-slate-900">음질 분석 (MDVP)</h1>
+          <p className="mt-2 max-w-3xl text-slate-600">3초간 안정된 아— 발성을 녹음하거나 녹음 파일을 업로드하면 MDVP 정렬 파라미터(F0·Jitter·Shimmer·NHR 등)를 자동 산출하고 병리 임계값과 대조합니다.</p>
           <p className="mt-1 max-w-3xl text-xs text-amber-700">⚠ 브라우저 계산이므로 Praat보다 정확도가 낮을 수 있습니다. 임상 획립은 Praat 결과와 대조하세요.</p>
         </div>
         {errorMsg && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{errorMsg}</div>}
@@ -215,27 +218,60 @@ export default function VoiceQualityPage() {
         {hasResult && phase === "done" && (
           <div className="space-y-4">
             <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
-              <h3 className="mb-4 text-lg font-bold text-slate-900">최근 결과</h3>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <ResultBox label="F0 평균" value={`${currentResult.f0Mean.toFixed(1)} Hz`} sub={`SD ${currentResult.f0SD.toFixed(1)}`} />
-                <ResultBox label="유효 프레임" value={`${currentResult.validFrames}`} sub={`${currentResult.durationSec.toFixed(2)}초`} />
-                <ResultBox label="HNR" value={`${currentResult.hnr.toFixed(1)} dB`} status={getStatus(currentResult.hnr, "hnr")} />
-                <ResultBox label="jitter (local)" value={`${currentResult.jitterLocal.toFixed(2)} %`} status={getStatus(currentResult.jitterLocal, "jitterLocal")} />
-                <ResultBox label="jitter (RAP)" value={`${currentResult.jitterRap.toFixed(2)} %`} status={getStatus(currentResult.jitterRap, "jitterRap")} />
-                <ResultBox label="shimmer (local)" value={`${currentResult.shimmerLocal.toFixed(2)} %`} status={getStatus(currentResult.shimmerLocal, "shimmerLocal")} />
-                <ResultBox label="shimmer (APQ3)" value={`${currentResult.shimmerApq3.toFixed(2)} %`} status={getStatus(currentResult.shimmerApq3, "shimmerApq3")} />
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-slate-900">
+                  MDVP 음향 파라미터
+                </h3>
+                <span className="text-xs text-slate-500">
+                  유효 {currentResult.validFrames} 프레임 ·{" "}
+                  {currentResult.durationSec.toFixed(2)}초
+                </span>
+              </div>
+
+              <div className="grid gap-5 lg:grid-cols-2">
+                <MetricGroup title="기본주파수 (F0)">
+                  <MetricRow label="F0 평균" code="F0" value={currentResult.f0Mean} unit="Hz" digits={1} />
+                  <MetricRow label="최고 / 최저" code="Fhi/Flo" value={currentResult.f0Hi} unit="Hz" digits={1} extra={`${currentResult.f0Lo.toFixed(1)} Hz`} />
+                  <MetricRow label="표준편차" code="STD" value={currentResult.f0SD} unit="Hz" digits={2} />
+                  <MetricRow label="음역" code="PFR" value={currentResult.pfrSemitones} unit="st" digits={1} />
+                  <MetricRow label="F0 변동" code="vF0" value={currentResult.vF0} unit="%" digits={2} mkey="vF0" />
+                </MetricGroup>
+
+                <MetricGroup title="주파수 변동 (Jitter)">
+                  <MetricRow label="절대 지터" code="Jita" value={currentResult.jitaUs} unit="µs" digits={1} mkey="jitaUs" />
+                  <MetricRow label="지터 %" code="Jitt" value={currentResult.jitterLocal} unit="%" digits={2} mkey="jitterLocal" />
+                  <MetricRow label="상대평균섭동" code="RAP" value={currentResult.rap} unit="%" digits={2} mkey="rap" />
+                  <MetricRow label="주기섭동지수" code="PPQ" value={currentResult.ppq5} unit="%" digits={2} mkey="ppq5" />
+                </MetricGroup>
+
+                <MetricGroup title="진폭 변동 (Shimmer)">
+                  <MetricRow label="쉼머 %" code="Shim" value={currentResult.shimmerLocal} unit="%" digits={2} mkey="shimmerLocal" />
+                  <MetricRow label="쉼머 dB" code="ShdB" value={currentResult.shdB} unit="dB" digits={2} mkey="shdB" />
+                  <MetricRow label="진폭섭동지수" code="APQ" value={currentResult.apq11} unit="%" digits={2} mkey="apq11" />
+                  <MetricRow label="진폭 변동" code="vAm" value={currentResult.vAm} unit="%" digits={2} mkey="vAm" />
+                </MetricGroup>
+
+                <MetricGroup title="잡음 (Noise)">
+                  <MetricRow label="잡음대배음비" code="NHR" value={currentResult.nhr} unit="" digits={3} mkey="nhr" />
+                  <MetricRow label="배음대잡음비" code="HNR" value={currentResult.hnr} unit="dB" digits={1} hnr />
+                </MetricGroup>
               </div>
             </div>
             <SaveToHistory
               moduleId="voice_quality"
               summary={{
                 "F0(Hz)": +currentResult.f0Mean.toFixed(1),
-                "F0_SD": +currentResult.f0SD.toFixed(1),
+                "STD(Hz)": +currentResult.f0SD.toFixed(2),
+                "Jita(us)": +currentResult.jitaUs.toFixed(1),
+                "Jitt(%)": +currentResult.jitterLocal.toFixed(2),
+                "RAP(%)": +currentResult.rap.toFixed(2),
+                "PPQ(%)": +currentResult.ppq5.toFixed(2),
+                "Shim(%)": +currentResult.shimmerLocal.toFixed(2),
+                "ShdB(dB)": +currentResult.shdB.toFixed(2),
+                "APQ(%)": +currentResult.apq11.toFixed(2),
+                "vAm(%)": +currentResult.vAm.toFixed(2),
+                "NHR": +currentResult.nhr.toFixed(3),
                 "HNR(dB)": +currentResult.hnr.toFixed(1),
-                "jitter_local(%)": +currentResult.jitterLocal.toFixed(2),
-                "jitter_RAP(%)": +currentResult.jitterRap.toFixed(2),
-                "shimmer_local(%)": +currentResult.shimmerLocal.toFixed(2),
-                "shimmer_APQ3(%)": +currentResult.shimmerApq3.toFixed(2),
               }}
             />
           </div>
@@ -250,8 +286,10 @@ export default function VoiceQualityPage() {
                   <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                     <th className="py-2 pr-3">#</th>
                     <th className="py-2 pr-3">F0</th>
-                    <th className="py-2 pr-3">jitter</th>
-                    <th className="py-2 pr-3">shimmer</th>
+                    <th className="py-2 pr-3">Jitt</th>
+                    <th className="py-2 pr-3">Shim</th>
+                    <th className="py-2 pr-3">APQ</th>
+                    <th className="py-2 pr-3">NHR</th>
                     <th className="py-2">HNR</th>
                   </tr>
                 </thead>
@@ -262,6 +300,8 @@ export default function VoiceQualityPage() {
                       <td className="py-2 pr-3">{t.result.f0Mean.toFixed(1)} Hz</td>
                       <td className="py-2 pr-3">{t.result.jitterLocal.toFixed(2)} %</td>
                       <td className="py-2 pr-3">{t.result.shimmerLocal.toFixed(2)} %</td>
+                      <td className="py-2 pr-3">{t.result.apq11.toFixed(2)} %</td>
+                      <td className="py-2 pr-3">{t.result.nhr.toFixed(3)}</td>
                       <td className="py-2">{t.result.hnr.toFixed(1)} dB</td>
                     </tr>
                   ))}
@@ -272,25 +312,37 @@ export default function VoiceQualityPage() {
         )}
 
         <details className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <summary className="cursor-pointer text-sm font-medium text-slate-700">정상 범위 + 근거</summary>
-          <div className="mt-3 space-y-2 text-sm">
+          <summary className="cursor-pointer text-sm font-medium text-slate-700">MDVP 파라미터 · 정상 임계값 + 근거</summary>
+          <div className="mt-3 space-y-3 text-sm">
             <table className="w-full text-slate-700">
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                  <th className="py-1">지표</th>
-                  <th className="py-1">정상</th>
-                  <th className="py-1">이상</th>
+                  <th className="py-1 pr-2">코드</th>
+                  <th className="py-1 pr-2">의미</th>
+                  <th className="py-1">정상 기준 (이하)</th>
                 </tr>
               </thead>
               <tbody className="text-sm tabular-nums">
-                <tr className="border-b border-slate-100"><td className="py-1">jitter (local)</td><td>≤ {NORMAL_RANGES.jitterLocal.normal}%</td><td>≥ {NORMAL_RANGES.jitterLocal.abnormal}%</td></tr>
-                <tr className="border-b border-slate-100"><td className="py-1">jitter (RAP)</td><td>≤ {NORMAL_RANGES.jitterRap.normal}%</td><td>≥ {NORMAL_RANGES.jitterRap.abnormal}%</td></tr>
-                <tr className="border-b border-slate-100"><td className="py-1">shimmer (local)</td><td>≤ {NORMAL_RANGES.shimmerLocal.normal}%</td><td>≥ {NORMAL_RANGES.shimmerLocal.abnormal}%</td></tr>
-                <tr className="border-b border-slate-100"><td className="py-1">shimmer (APQ3)</td><td>≤ {NORMAL_RANGES.shimmerApq3.normal}%</td><td>≥ {NORMAL_RANGES.shimmerApq3.abnormal}%</td></tr>
-                <tr><td className="py-1">HNR</td><td>≥ {NORMAL_RANGES.hnr.normal} dB</td><td>≤ {NORMAL_RANGES.hnr.abnormal} dB</td></tr>
+                <tr className="border-b border-slate-100"><td className="py-1 pr-2 font-mono">Jita</td><td className="pr-2">절대 지터</td><td>≤ {MDVP_THRESHOLDS.jitaUs} µs</td></tr>
+                <tr className="border-b border-slate-100"><td className="py-1 pr-2 font-mono">Jitt</td><td className="pr-2">지터 %</td><td>≤ {MDVP_THRESHOLDS.jitterLocal} %</td></tr>
+                <tr className="border-b border-slate-100"><td className="py-1 pr-2 font-mono">RAP</td><td className="pr-2">상대평균섭동</td><td>≤ {MDVP_THRESHOLDS.rap} %</td></tr>
+                <tr className="border-b border-slate-100"><td className="py-1 pr-2 font-mono">PPQ</td><td className="pr-2">주기섭동지수(5점)</td><td>≤ {MDVP_THRESHOLDS.ppq5} %</td></tr>
+                <tr className="border-b border-slate-100"><td className="py-1 pr-2 font-mono">vF0</td><td className="pr-2">F0 변동계수</td><td>≤ {MDVP_THRESHOLDS.vF0} %</td></tr>
+                <tr className="border-b border-slate-100"><td className="py-1 pr-2 font-mono">Shim</td><td className="pr-2">쉼머 %</td><td>≤ {MDVP_THRESHOLDS.shimmerLocal} %</td></tr>
+                <tr className="border-b border-slate-100"><td className="py-1 pr-2 font-mono">ShdB</td><td className="pr-2">쉼머 dB</td><td>≤ {MDVP_THRESHOLDS.shdB} dB</td></tr>
+                <tr className="border-b border-slate-100"><td className="py-1 pr-2 font-mono">APQ</td><td className="pr-2">진폭섭동지수(11점)</td><td>≤ {MDVP_THRESHOLDS.apq11} %</td></tr>
+                <tr className="border-b border-slate-100"><td className="py-1 pr-2 font-mono">vAm</td><td className="pr-2">진폭 변동계수</td><td>≤ {MDVP_THRESHOLDS.vAm} %</td></tr>
+                <tr className="border-b border-slate-100"><td className="py-1 pr-2 font-mono">NHR</td><td className="pr-2">잡음대배음비</td><td>≤ {MDVP_THRESHOLDS.nhr}</td></tr>
+                <tr><td className="py-1 pr-2 font-mono">HNR</td><td className="pr-2">배음대잡음비(보조)</td><td>≥ {HNR_NORMAL} dB</td></tr>
               </tbody>
             </table>
-            <p className="mt-3 text-xs text-slate-500">근거: Praat (Boersma & Weenink) 기본 임계치 / Teixeira & Lopes (2017) Voice acoustic analysis</p>
+            <p className="text-xs text-amber-700">
+              ⚠ 프레임 단위 근사(주기 1개/프레임)로 산출하므로 KayPENTAX MDVP /
+              Praat 본 프로그램과 수치 차이가 있을 수 있습니다. 임상 확정은
+              MDVP/Praat 결과와 대조하세요. VTI·SPI·tremor·voice break 등 일부
+              MDVP 항목은 미포함입니다.
+            </p>
+            <p className="text-xs text-slate-500">근거: KayPENTAX MDVP 병리 임계값 / Praat (Boersma &amp; Weenink) Voice 매뉴얼 / Chiarella 외 (2005) MDVP 정상규준</p>
           </div>
         </details>
       </div>
@@ -298,30 +350,73 @@ export default function VoiceQualityPage() {
   );
 }
 
-function ResultBox({ label, value, sub, status }: { label: string; value: string; sub?: string; status?: "normal" | "borderline" | "abnormal" }) {
-  const statusColors: Record<string, string> = {
-    normal: "border-emerald-300 bg-emerald-50",
-    borderline: "border-amber-300 bg-amber-50",
-    abnormal: "border-rose-300 bg-rose-50",
-  };
-  const statusText: Record<string, string> = {
-    normal: "정상",
-    borderline: "경계",
-    abnormal: "이상",
-  };
-  const statusLabelColor: Record<string, string> = {
-    normal: "text-emerald-800",
-    borderline: "text-amber-800",
-    abnormal: "text-rose-800",
-  };
+function MetricGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className={`rounded-xl border bg-white px-4 py-3 ${status ? statusColors[status] : "border-slate-200"}`}>
-      <div className="flex items-start justify-between">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-600">{label}</p>
-        {status && <span className={`text-[10px] font-bold ${statusLabelColor[status]}`}>{statusText[status]}</span>}
-      </div>
-      <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{value}</p>
-      {sub && <p className="mt-1 text-xs text-slate-600">{sub}</p>}
+    <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</p>
+      <table className="w-full text-sm">
+        <tbody>{children}</tbody>
+      </table>
     </div>
+  );
+}
+
+function MetricRow({
+  label,
+  code,
+  value,
+  unit,
+  digits,
+  extra,
+  mkey,
+  hnr,
+}: {
+  label: string;
+  code: string;
+  value: number;
+  unit: string;
+  digits: number;
+  extra?: string;
+  mkey?: MdvpKey;
+  hnr?: boolean;
+}) {
+  const status = mkey
+    ? getStatus(value, mkey)
+    : hnr
+      ? getHnrStatus(value)
+      : null;
+  const threshold = mkey
+    ? `≤ ${MDVP_THRESHOLDS[mkey]}${unit ? " " + unit : ""}`
+    : hnr
+      ? `≥ ${HNR_NORMAL} dB`
+      : "";
+  return (
+    <tr className="border-b border-slate-100 last:border-0">
+      <td className="py-1.5 pr-2">
+        <span className="font-mono text-xs text-slate-500">{code}</span>{" "}
+        <span className="text-slate-700">{label}</span>
+      </td>
+      <td className="py-1.5 pr-2 text-right font-semibold tabular-nums text-slate-900">
+        {value.toFixed(digits)}
+        {unit ? ` ${unit}` : ""}
+        {extra ? ` / ${extra}` : ""}
+      </td>
+      <td className="py-1.5 text-right">
+        {status ? (
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+              status === "normal"
+                ? "bg-emerald-100 text-emerald-800"
+                : "bg-rose-100 text-rose-800"
+            }`}
+            title={threshold}
+          >
+            {status === "normal" ? "정상" : "이상"}
+          </span>
+        ) : (
+          <span className="text-[10px] text-slate-400">참고</span>
+        )}
+      </td>
+    </tr>
   );
 }

@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import SaveToHistory from "@/components/SaveToHistory";
 import { decodeAudioFile } from "@/components/audioFile";
+import { yinPitch } from "@/components/pitch/yin";
+import { freqToNoteName } from "@/components/pitch/noteUtils";
+
+const WAVE_CAPACITY = 260; // 스크롤 파형 막대 수
 
 const VOICE_THRESHOLD = 0.008;
 const END_SILENCE_MS = 500;
@@ -43,6 +47,7 @@ export default function MptPage() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [currentSec, setCurrentSec] = useState(0);
   const [currentLevel, setCurrentLevel] = useState(0);
+  const [liveF0, setLiveF0] = useState<number | null>(null);
   const [trials, setTrials] = useState<Trial[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -53,6 +58,37 @@ export default function MptPage() {
   const rafRef = useRef<number | null>(null);
   const phonationStartRef = useRef<number>(0);
   const lastVoicedRef = useRef<number>(0);
+  const levelHistRef = useRef<number[]>([]);
+  const voicedHistRef = useRef<boolean[]>([]);
+  const waveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const drawWave = useCallback(() => {
+    const c = waveCanvasRef.current;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    const W = c.width;
+    const H = c.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#f8fafc";
+    ctx.fillRect(0, 0, W, H);
+    const mid = H / 2;
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
+    ctx.lineTo(W, mid);
+    ctx.stroke();
+    const hist = levelHistRef.current;
+    const vh = voicedHistRef.current;
+    const maxLevel = 0.12;
+    const barW = W / WAVE_CAPACITY;
+    for (let i = 0; i < hist.length; i++) {
+      const lvl = Math.min(1, hist[i] / maxLevel);
+      const barH = Math.max(1, lvl * H * 0.92);
+      ctx.fillStyle = vh[i] ? "#10b981" : "#cbd5e1";
+      ctx.fillRect(i * barW, mid - barH / 2, Math.max(1, barW - 0.5), barH);
+    }
+  }, []);
 
   const stopMic = useCallback(() => {
     if (rafRef.current !== null) {
@@ -82,6 +118,24 @@ export default function MptPage() {
     const isVoiced = r > VOICE_THRESHOLD;
     const now = performance.now();
 
+    // 실시간 파형 + 음도
+    const hist = levelHistRef.current;
+    const vh = voicedHistRef.current;
+    hist.push(r);
+    vh.push(isVoiced);
+    if (hist.length > WAVE_CAPACITY) {
+      hist.shift();
+      vh.shift();
+    }
+    drawWave();
+    if (isVoiced) {
+      const sr = audioCtxRef.current?.sampleRate ?? 44100;
+      const f0 = yinPitch(buf, sr);
+      setLiveF0(f0 > 50 && f0 < 500 && isFinite(f0) ? f0 : null);
+    } else {
+      setLiveF0(null);
+    }
+
     if (phaseRef.current === "waiting") {
       if (isVoiced) {
         phonationStartRef.current = now;
@@ -110,11 +164,14 @@ export default function MptPage() {
       }
     }
     rafRef.current = requestAnimationFrame(tick);
-  }, [stopMic]);
+  }, [stopMic, drawWave]);
 
   const start = useCallback(async () => {
     setErrorMsg(null);
     setCurrentSec(0);
+    setLiveF0(null);
+    levelHistRef.current = [];
+    voicedHistRef.current = [];
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -221,20 +278,38 @@ export default function MptPage() {
             </span>
           </div>
 
-          <div className="my-10 text-center">
+          <div className="my-8 text-center">
             <div className="text-8xl font-bold text-slate-900 tabular-nums">{currentSec.toFixed(1)}</div>
-            <div className="mt-1 text-xl text-slate-500">초</div>
+            <div className="mt-1 flex items-center justify-center gap-4 text-xl text-slate-500">
+              <span>초</span>
+              {(phase === "waiting" || phase === "phonating") && (
+                <span className="text-base font-semibold text-emerald-700 tabular-nums">
+                  음도 {liveF0 ? `${liveF0.toFixed(0)} Hz · ${freqToNoteName(liveF0)}` : "—"}
+                </span>
+              )}
+            </div>
           </div>
 
           {(phase === "waiting" || phase === "phonating") && (
-            <div className="mb-6">
-              <div className="mb-1 flex justify-between text-xs text-slate-500">
-                <span>마이크 입력</span>
-                <span>{(currentLevel * 1000).toFixed(0)}</span>
+            <div className="mb-6 space-y-3">
+              <div>
+                <p className="mb-1 text-xs text-slate-500">실시간 파형 (녹색 = 발성 감지)</p>
+                <canvas
+                  ref={waveCanvasRef}
+                  width={600}
+                  height={110}
+                  className="w-full rounded-lg border border-slate-200"
+                />
               </div>
-              <div className="relative h-3 overflow-hidden rounded-full bg-slate-200">
-                <div className={`absolute left-0 top-0 h-full transition-all ${currentLevel > VOICE_THRESHOLD ? "bg-emerald-500" : "bg-slate-400"}`} style={{ width: `${levelPercent}%` }} />
-                <div className="absolute top-0 h-full w-px bg-amber-600" style={{ left: `${(VOICE_THRESHOLD / 0.1) * 100}%` }} title="발성 감지 임계값" />
+              <div>
+                <div className="mb-1 flex justify-between text-xs text-slate-500">
+                  <span>마이크 입력 레벨</span>
+                  <span>{(currentLevel * 1000).toFixed(0)}</span>
+                </div>
+                <div className="relative h-3 overflow-hidden rounded-full bg-slate-200">
+                  <div className={`absolute left-0 top-0 h-full transition-all ${currentLevel > VOICE_THRESHOLD ? "bg-emerald-500" : "bg-slate-400"}`} style={{ width: `${levelPercent}%` }} />
+                  <div className="absolute top-0 h-full w-px bg-amber-600" style={{ left: `${(VOICE_THRESHOLD / 0.1) * 100}%` }} title="발성 감지 임계값" />
+                </div>
               </div>
             </div>
           )}

@@ -1,23 +1,69 @@
 import { yinPitch } from "../pitch/yin";
 
+/**
+ * MDVP(Multi-Dimensional Voice Program, KayPENTAX) 정렬 음향 파라미터.
+ * 프레임 단위(주기 1개/프레임) 근사이므로 MDVP/Praat 본 프로그램과
+ * 수치 차이가 있을 수 있음 — 임상 확정은 Praat/MDVP 와 대조 권장.
+ *
+ * 임계값 근거: MDVP 병리 임계(Jita 83.2µs, Jitt 1.04%, RAP 0.68%,
+ *   PPQ 0.84%, vF0 1.10%, ShdB 0.35dB, Shim 3.81%, APQ 3.07%,
+ *   vAm 8.2%, NHR 0.19). Boersma & Weenink Praat 매뉴얼 교차확인.
+ */
 export type VoiceQualityResult = {
-  f0Mean: number;
-  f0SD: number;
-  jitterLocal: number; // %
-  jitterRap: number; // %
-  shimmerLocal: number; // %
-  shimmerApq3: number; // %
-  hnr: number; // dB
+  // 기본주파수
+  f0Mean: number; // Hz (F0)
+  f0Hi: number; // Hz (Fhi)
+  f0Lo: number; // Hz (Flo)
+  f0SD: number; // Hz (STD)
+  pfrSemitones: number; // PFR (음역, semitone)
+  vF0: number; // % (F0 변동계수)
+  toMs: number; // ms (평균 주기 To)
+  // 주파수 변동 (jitter)
+  jitaUs: number; // µs (절대 지터)
+  jitterLocal: number; // % (Jitt)
+  rap: number; // % (RAP, 3점)
+  ppq5: number; // % (PPQ, 5점)
+  // 진폭 변동 (shimmer)
+  shimmerLocal: number; // % (Shim)
+  shdB: number; // dB (ShdB)
+  apq11: number; // % (APQ, 11점)
+  apq3: number; // % (APQ3, 3점)
+  vAm: number; // % (진폭 변동계수)
+  // 잡음
+  nhr: number; // 비율 (NHR)
+  hnr: number; // dB (보조)
   validFrames: number;
   durationSec: number;
 };
 
 export const EMPTY_RESULT: VoiceQualityResult = {
-  f0Mean: 0, f0SD: 0,
-  jitterLocal: 0, jitterRap: 0,
-  shimmerLocal: 0, shimmerApq3: 0,
-  hnr: 0, validFrames: 0, durationSec: 0,
+  f0Mean: 0, f0Hi: 0, f0Lo: 0, f0SD: 0, pfrSemitones: 0, vF0: 0, toMs: 0,
+  jitaUs: 0, jitterLocal: 0, rap: 0, ppq5: 0,
+  shimmerLocal: 0, shdB: 0, apq11: 0, apq3: 0, vAm: 0,
+  nhr: 0, hnr: 0, validFrames: 0, durationSec: 0,
 };
+
+function mean(a: number[]): number {
+  return a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
+}
+
+// m-점 perturbation quotient (%) : |x_i - mean(x[i-k..i+k])| 평균 / mean(x) * 100
+function perturbationQuotient(x: number[], points: number): number {
+  const k = (points - 1) / 2;
+  if (x.length <= points) return 0;
+  const m = mean(x);
+  if (m <= 0) return 0;
+  let sum = 0;
+  let cnt = 0;
+  for (let i = k; i < x.length - k; i++) {
+    let avg = 0;
+    for (let j = i - k; j <= i + k; j++) avg += x[j];
+    avg /= points;
+    sum += Math.abs(x[i] - avg);
+    cnt++;
+  }
+  return cnt > 0 ? (sum / cnt / m) * 100 : 0;
+}
 
 export function analyzeVoiceQuality(
   signal: Float32Array,
@@ -25,15 +71,15 @@ export function analyzeVoiceQuality(
   frameSize: number = 2048,
   hopSize: number = 1024,
 ): VoiceQualityResult {
-  const periods: number[] = [];
-  const amps: number[] = [];
-  const hnrFrames: number[] = [];
+  const periods: number[] = []; // samples
+  const amps: number[] = []; // peak amplitude
   const f0s: number[] = [];
+  const nhrFrames: number[] = [];
+  const hnrFrames: number[] = [];
 
   for (let start = 0; start + frameSize <= signal.length; start += hopSize) {
     const frame = signal.subarray(start, start + frameSize);
 
-    // RMS check - skip silent frames
     let sumSq = 0;
     for (let i = 0; i < frame.length; i++) sumSq += frame[i] * frame[i];
     const rms = Math.sqrt(sumSq / frame.length);
@@ -46,7 +92,6 @@ export function analyzeVoiceQuality(
     periods.push(period);
     f0s.push(f0);
 
-    // Peak amplitude in frame
     let maxAbs = 0;
     for (let i = 0; i < frame.length; i++) {
       const a = Math.abs(frame[i]);
@@ -54,7 +99,6 @@ export function analyzeVoiceQuality(
     }
     amps.push(maxAbs);
 
-    // HNR via period-lag autocorrelation
     const lag = Math.round(period);
     if (lag > 0 && lag < frame.length - 100) {
       let r0 = 0, rL = 0;
@@ -67,8 +111,8 @@ export function analyzeVoiceQuality(
       rL /= N;
       const ratio = r0 > 0 ? rL / r0 : 0;
       const clamped = Math.max(0.001, Math.min(0.999, ratio));
-      const hnr = 10 * Math.log10(clamped / (1 - clamped));
-      hnrFrames.push(hnr);
+      hnrFrames.push(10 * Math.log10(clamped / (1 - clamped)));
+      nhrFrames.push((1 - clamped) / clamped);
     }
   }
 
@@ -76,89 +120,94 @@ export function analyzeVoiceQuality(
     return { ...EMPTY_RESULT, durationSec: signal.length / sampleRate };
   }
 
-  // F0 stats
-  const f0Mean = f0s.reduce((a, b) => a + b, 0) / f0s.length;
-  const f0Var = f0s.reduce((a, b) => a + (b - f0Mean) * (b - f0Mean), 0) / f0s.length;
+  const f0Mean = mean(f0s);
+  const f0Var = mean(f0s.map((f) => (f - f0Mean) * (f - f0Mean)));
   const f0SD = Math.sqrt(f0Var);
-  const periodMean = periods.reduce((a, b) => a + b, 0) / periods.length;
-  const ampMean = amps.reduce((a, b) => a + b, 0) / amps.length;
+  const f0Hi = Math.max(...f0s);
+  const f0Lo = Math.min(...f0s);
+  const periodMean = mean(periods);
+  const ampMean = mean(amps);
 
-  // Jitter local: mean(|T_i - T_{i+1}|) / mean(T)
-  let jSum = 0;
+  // 주파수 변동
+  let absDiffSum = 0;
   for (let i = 0; i < periods.length - 1; i++) {
-    jSum += Math.abs(periods[i] - periods[i + 1]);
+    absDiffSum += Math.abs(periods[i] - periods[i + 1]);
   }
-  const jitterLocal = periodMean > 0
-    ? (jSum / (periods.length - 1)) / periodMean * 100
-    : 0;
+  const meanAbsDiffSamples = absDiffSum / (periods.length - 1);
+  const jitaUs = (meanAbsDiffSamples / sampleRate) * 1e6;
+  const jitterLocal = periodMean > 0 ? (meanAbsDiffSamples / periodMean) * 100 : 0;
+  const rap = perturbationQuotient(periods, 3);
+  const ppq5 = perturbationQuotient(periods, 5);
 
-  // Jitter RAP: 3-point smoothed
-  let rapSum = 0;
-  for (let i = 1; i < periods.length - 1; i++) {
-    const avg3 = (periods[i - 1] + periods[i] + periods[i + 1]) / 3;
-    rapSum += Math.abs(periods[i] - avg3);
-  }
-  const jitterRap = periods.length > 2 && periodMean > 0
-    ? (rapSum / (periods.length - 2)) / periodMean * 100
-    : 0;
-
-  // Shimmer local: mean(|A_i - A_{i+1}|) / mean(A) * 100
-  let sSum = 0;
+  // 진폭 변동
+  let shSum = 0;
   for (let i = 0; i < amps.length - 1; i++) {
-    sSum += Math.abs(amps[i] - amps[i + 1]);
+    shSum += Math.abs(amps[i] - amps[i + 1]);
   }
-  const shimmerLocal = ampMean > 0
-    ? (sSum / (amps.length - 1)) / ampMean * 100
-    : 0;
-
-  // Shimmer APQ3
-  let apq3Sum = 0;
-  for (let i = 1; i < amps.length - 1; i++) {
-    const avg3 = (amps[i - 1] + amps[i] + amps[i + 1]) / 3;
-    apq3Sum += Math.abs(amps[i] - avg3);
+  const shimmerLocal = ampMean > 0 ? (shSum / (amps.length - 1) / ampMean) * 100 : 0;
+  let shdBSum = 0;
+  let shdBCnt = 0;
+  for (let i = 0; i < amps.length - 1; i++) {
+    if (amps[i] > 0 && amps[i + 1] > 0) {
+      shdBSum += Math.abs(20 * Math.log10(amps[i] / amps[i + 1]));
+      shdBCnt++;
+    }
   }
-  const shimmerApq3 = amps.length > 2 && ampMean > 0
-    ? (apq3Sum / (amps.length - 2)) / ampMean * 100
-    : 0;
-
-  // HNR mean
-  const hnrMean = hnrFrames.length > 0
-    ? hnrFrames.reduce((a, b) => a + b, 0) / hnrFrames.length
-    : 0;
+  const shdB = shdBCnt > 0 ? shdBSum / shdBCnt : 0;
+  const apq3 = perturbationQuotient(amps, 3);
+  const apq11 = perturbationQuotient(amps, 11);
+  const ampSD = Math.sqrt(mean(amps.map((a) => (a - ampMean) * (a - ampMean))));
+  const vAm = ampMean > 0 ? (ampSD / ampMean) * 100 : 0;
 
   return {
     f0Mean,
+    f0Hi,
+    f0Lo,
     f0SD,
+    pfrSemitones: f0Lo > 0 ? 12 * Math.log2(f0Hi / f0Lo) : 0,
+    vF0: f0Mean > 0 ? (f0SD / f0Mean) * 100 : 0,
+    toMs: (periodMean / sampleRate) * 1000,
+    jitaUs,
     jitterLocal,
-    jitterRap,
+    rap,
+    ppq5,
     shimmerLocal,
-    shimmerApq3,
-    hnr: hnrMean,
+    shdB,
+    apq11,
+    apq3,
+    vAm,
+    nhr: mean(nhrFrames),
+    hnr: mean(hnrFrames),
     validFrames: periods.length,
     durationSec: signal.length / sampleRate,
   };
 }
 
-// 정상 범위 (Praat 기준, 성인 정상 음성)
-export const NORMAL_RANGES = {
-  jitterLocal: { normal: 1.04, abnormal: 2.0, unit: "%" },
-  jitterRap: { normal: 0.68, abnormal: 1.5, unit: "%" },
-  shimmerLocal: { normal: 3.81, abnormal: 6.0, unit: "%" },
-  shimmerApq3: { normal: 3.0, abnormal: 5.0, unit: "%" },
-  hnr: { normal: 20, abnormal: 15, unit: "dB", reverse: true }, // HNR은 높을수록 정상
-};
+// MDVP 병리 임계값 (이 값을 초과하면 이상)
+export const MDVP_THRESHOLDS = {
+  jitaUs: 83.2,
+  jitterLocal: 1.04,
+  rap: 0.68,
+  ppq5: 0.84,
+  vF0: 1.1,
+  shdB: 0.35,
+  shimmerLocal: 3.81,
+  apq11: 3.07,
+  vAm: 8.2,
+  nhr: 0.19,
+} as const;
+
+export type MdvpKey = keyof typeof MDVP_THRESHOLDS;
 
 export function getStatus(
   value: number,
-  key: keyof typeof NORMAL_RANGES,
-): "normal" | "borderline" | "abnormal" {
-  const range = NORMAL_RANGES[key];
-  if ("reverse" in range && range.reverse) {
-    if (value >= range.normal) return "normal";
-    if (value >= range.abnormal) return "borderline";
-    return "abnormal";
-  }
-  if (value <= range.normal) return "normal";
-  if (value <= range.abnormal) return "borderline";
-  return "abnormal";
+  key: MdvpKey,
+): "normal" | "abnormal" {
+  return value <= MDVP_THRESHOLDS[key] ? "normal" : "abnormal";
+}
+
+// HNR 은 MDVP 항목은 아니나 보조 지표 (높을수록 정상)
+export const HNR_NORMAL = 20;
+export function getHnrStatus(value: number): "normal" | "abnormal" {
+  return value >= HNR_NORMAL ? "normal" : "abnormal";
 }
