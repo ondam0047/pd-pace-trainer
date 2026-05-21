@@ -41,7 +41,7 @@ function EmblemMark({ className }: { className?: string }) {
 type Module = { href: string; title: string; subtitle: string; description: string; color: "blue" | "emerald" | "amber" | "rose"; status: "ready" | "soon" };
 
 const MODULES: Module[] = [
-  { href: "/pitch", title: "실시간 피치·강도", subtitle: "F0 + dB Tracking", description: "기본주파수·음성강도·음역 시계열 통합 분석", color: "blue", status: "ready" },
+  { href: "/pitch", title: "실시간 피치·강도", subtitle: "F0 + dB Tracking", description: "F0·음역 + 강도 바이오피드백(LSVT LOUD) 통합 시계열 분석", color: "blue", status: "ready" },
   { href: "/vocal-tract", title: "모음·자음 시각화", subtitle: "Vocal Tract", description: "실시간 F1/F2 + 자음 조음 위치 + 마찰음 변별 + 3D 조음", color: "blue", status: "ready" },
   { href: "/voice-quality", title: "음질 분석", subtitle: "Voice Quality", description: "jitter · shimmer · HNR 자동 추출", color: "blue", status: "ready" },
   { href: "/mpt", title: "MPT", subtitle: "Maximum Phonation Time", description: "최대발성지속시간 · 3회 평균 자동 계산", color: "emerald", status: "ready" },
@@ -50,7 +50,6 @@ const MODULES: Module[] = [
   { href: "/spontaneous", title: "자발화 언어/조음 분석", subtitle: "Language Sample Analysis", description: "한국어 전사 기반 자발화 분석 (내장 외부 도구)", color: "amber", status: "ready" },
   { href: "/pace", title: "페이스 조절 훈련", subtitle: "Cued Pacing", description: "시각·청각·혼합 단서 훈련 · 세션 기록", color: "rose", status: "ready" },
   { href: "/daf", title: "DAF 훈련기", subtitle: "Delayed Auditory Feedback", description: "50–500ms 지연 청각피드백 (말더듬·파킨슨)", color: "rose", status: "ready" },
-  { href: "/intensity-trainer", title: "강도 바이오피드백", subtitle: "Intensity Biofeedback", description: "목표 dB 구간 게이지 훈련 (LSVT LOUD 기반)", color: "rose", status: "ready" },
 ];
 
 export default function HomePage() {

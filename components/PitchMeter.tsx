@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { yinPitch } from "./pitch/yin";
 import { freqToNoteName, semitonesBetween } from "./pitch/noteUtils";
 import SaveToHistory from "./SaveToHistory";
@@ -28,33 +22,82 @@ const PRESETS: Preset[] = [
 
 const F_MIN = 50;
 const F_MAX = 500;
+const DB_MIN = 30;
+const DB_MAX = 100;
+const DB_OFFSET = 80; // dBFS → dB SPL 추정 오프셋 (캘리브레이션 없이)
 const CHART_WIDTH = 900;
-const CHART_HEIGHT = 380;
+const PITCH_H = 360;
+const INTENSITY_H = 300;
 const PADDING = { top: 24, right: 80, bottom: 44, left: 80 };
 const GAP_THRESHOLD_SEC = 0.15;
 
-type Sample = { t: number; f0: number };
+type Sample = { t: number; f0: number | null; db: number | null };
 
-function freqToY(freq: number): number {
-  const logMin = Math.log(F_MIN);
-  const logMax = Math.log(F_MAX);
-  const clamped = Math.max(F_MIN, Math.min(F_MAX, freq));
-  const logF = Math.log(clamped);
-  const innerHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom;
-  return PADDING.top + innerHeight * (1 - (logF - logMin) / (logMax - logMin));
+type Scale = { toY: (v: number) => number; toVal: (y: number) => number };
+
+function logScale(min: number, max: number, height: number): Scale {
+  const logMin = Math.log(min);
+  const logMax = Math.log(max);
+  const innerH = height - PADDING.top - PADDING.bottom;
+  return {
+    toY: (v) => {
+      const c = Math.max(min, Math.min(max, v));
+      return (
+        PADDING.top + innerH * (1 - (Math.log(c) - logMin) / (logMax - logMin))
+      );
+    },
+    toVal: (y) => {
+      const ratio = 1 - (y - PADDING.top) / innerH;
+      return Math.exp(logMin + ratio * (logMax - logMin));
+    },
+  };
 }
 
-function yToFreq(y: number): number {
-  const logMin = Math.log(F_MIN);
-  const logMax = Math.log(F_MAX);
-  const innerHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom;
-  const ratio = 1 - (y - PADDING.top) / innerHeight;
-  return Math.exp(logMin + ratio * (logMax - logMin));
+function linScale(min: number, max: number, height: number): Scale {
+  const innerH = height - PADDING.top - PADDING.bottom;
+  return {
+    toY: (v) => {
+      const c = Math.max(min, Math.min(max, v));
+      return PADDING.top + innerH * (1 - (c - min) / (max - min));
+    },
+    toVal: (y) => {
+      const ratio = 1 - (y - PADDING.top) / innerH;
+      return min + ratio * (max - min);
+    },
+  };
 }
 
 function timeToX(t: number, duration: number): number {
   const innerWidth = CHART_WIDTH - PADDING.left - PADDING.right;
   return PADDING.left + innerWidth * (t / duration);
+}
+
+function buildPath(
+  samples: Sample[],
+  key: "f0" | "db",
+  toY: (v: number) => number,
+  duration: number,
+): string {
+  const parts: string[] = [];
+  let lastT = -1;
+  let lastValid = false;
+  for (const s of samples) {
+    const v = s[key];
+    if (v == null) {
+      lastValid = false;
+      continue;
+    }
+    const x = timeToX(s.t, duration);
+    const y = toY(v);
+    if (!lastValid || s.t - lastT > GAP_THRESHOLD_SEC) {
+      parts.push(`M ${x.toFixed(2)} ${y.toFixed(2)}`);
+    } else {
+      parts.push(`L ${x.toFixed(2)} ${y.toFixed(2)}`);
+    }
+    lastT = s.t;
+    lastValid = true;
+  }
+  return parts.join(" ");
 }
 
 export default function PitchMeter() {
@@ -63,11 +106,17 @@ export default function PitchMeter() {
   const [isRecording, setIsRecording] = useState(false);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [currentF0, setCurrentF0] = useState<number | null>(null);
+  const [currentDb, setCurrentDb] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [lowerBound, setLowerBound] = useState(150);
   const [upperBound, setUpperBound] = useState(280);
+  const [dbLower, setDbLower] = useState(65);
+  const [dbUpper, setDbUpper] = useState(80);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [dragging, setDragging] = useState<null | "low" | "high">(null);
+  const [dragging, setDragging] = useState<{
+    chart: "pitch" | "intensity";
+    bound: "low" | "high";
+  } | null>(null);
   const [presetId, setPresetId] = useState("custom");
 
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -79,14 +128,20 @@ export default function PitchMeter() {
   const samplesRef = useRef<Sample[]>([]);
   const durationRef = useRef<Duration>(duration);
   const fftSizeRef = useRef<FftSize>(fftSize);
-  const svgRef = useRef<SVGSVGElement>(null);
+  const draggingRef = useRef<typeof dragging>(null);
 
+  useEffect(() => {
+    draggingRef.current = dragging;
+  }, [dragging]);
   useEffect(() => {
     durationRef.current = duration;
   }, [duration]);
   useEffect(() => {
     fftSizeRef.current = fftSize;
   }, [fftSize]);
+
+  const pitchScale = useMemo(() => logScale(F_MIN, F_MAX, PITCH_H), []);
+  const dbScale = useMemo(() => linScale(DB_MIN, DB_MAX, INTENSITY_H), []);
 
   const stop = useCallback(() => {
     if (rafRef.current !== null) {
@@ -116,21 +171,32 @@ export default function PitchMeter() {
     analyser.getFloatTimeDomainData(buf);
 
     const f0 = yinPitch(buf, ctx.sampleRate);
-    const t = (performance.now() - startTimeRef.current) / 1000;
 
+    let sumSq = 0;
+    for (let i = 0; i < buf.length; i++) sumSq += buf[i] * buf[i];
+    const rms = Math.sqrt(sumSq / buf.length);
+    const dbSPL = (rms > 0 ? 20 * Math.log10(rms) : -100) + DB_OFFSET;
+
+    const t = (performance.now() - startTimeRef.current) / 1000;
     if (t >= dur) {
       setElapsed(dur);
       stop();
       return;
     }
 
-    if (f0 > F_MIN && f0 < F_MAX && isFinite(f0)) {
-      samplesRef.current.push({ t, f0 });
+    const validF0 = f0 > F_MIN && f0 < F_MAX && isFinite(f0);
+    const validDb = dbSPL > DB_MIN && dbSPL < DB_MAX;
+
+    if (validF0 || validDb) {
+      samplesRef.current.push({
+        t,
+        f0: validF0 ? f0 : null,
+        db: validDb ? dbSPL : null,
+      });
       setSamples([...samplesRef.current]);
-      setCurrentF0(f0);
-    } else {
-      setCurrentF0(null);
     }
+    setCurrentF0(validF0 ? f0 : null);
+    setCurrentDb(validDb ? dbSPL : null);
     setElapsed(t);
 
     rafRef.current = requestAnimationFrame(tick);
@@ -167,6 +233,7 @@ export default function PitchMeter() {
       samplesRef.current = [];
       setSamples([]);
       setCurrentF0(null);
+      setCurrentDb(null);
       setElapsed(0);
       startTimeRef.current = performance.now();
       setIsRecording(true);
@@ -184,6 +251,7 @@ export default function PitchMeter() {
     samplesRef.current = [];
     setSamples([]);
     setCurrentF0(null);
+    setCurrentDb(null);
     setElapsed(0);
   }, [stop]);
 
@@ -191,69 +259,71 @@ export default function PitchMeter() {
     return () => stop();
   }, [stop]);
 
-  const stats = useMemo(() => {
-    if (samples.length === 0) {
-      return {
-        mean: 0,
-        min: 0,
-        max: 0,
-        inRange: 0,
-        total: 0,
-        inRangePct: 0,
-        rangeSemitones: 0,
-      };
-    }
-    let sum = 0;
-    let min = Infinity;
-    let max = -Infinity;
-    let inRange = 0;
-    for (const s of samples) {
+  const pitchStats = useMemo(() => {
+    const voiced = samples.filter((s) => s.f0 != null) as {
+      t: number;
+      f0: number;
+    }[];
+    if (voiced.length === 0)
+      return { mean: 0, min: 0, max: 0, inRange: 0, total: 0, inRangePct: 0, rangeSemitones: 0 };
+    let sum = 0, min = Infinity, max = -Infinity, inRange = 0;
+    for (const s of voiced) {
       sum += s.f0;
       if (s.f0 < min) min = s.f0;
       if (s.f0 > max) max = s.f0;
       if (s.f0 >= lowerBound && s.f0 <= upperBound) inRange++;
     }
     return {
-      mean: sum / samples.length,
+      mean: sum / voiced.length,
       min,
       max,
       inRange,
-      total: samples.length,
-      inRangePct: (inRange / samples.length) * 100,
+      total: voiced.length,
+      inRangePct: (inRange / voiced.length) * 100,
       rangeSemitones: semitonesBetween(min, max),
     };
   }, [samples, lowerBound, upperBound]);
 
-  const updateDragFromClientY = useCallback(
-    (clientY: number) => {
-      if (!dragging || !svgRef.current) return;
-      const rect = svgRef.current.getBoundingClientRect();
-      const scaleY = CHART_HEIGHT / rect.height;
-      const localY = (clientY - rect.top) * scaleY;
-      const freq = Math.max(F_MIN + 1, Math.min(F_MAX - 1, yToFreq(localY)));
-      if (dragging === "low") {
-        setLowerBound(Math.min(freq, upperBound - 5));
+  const dbStats = useMemo(() => {
+    const valid = samples.filter((s) => s.db != null) as {
+      t: number;
+      db: number;
+    }[];
+    if (valid.length === 0)
+      return { mean: 0, min: 0, max: 0, inRange: 0, total: 0, inRangePct: 0 };
+    let sum = 0, min = Infinity, max = -Infinity, inRange = 0;
+    for (const s of valid) {
+      sum += s.db;
+      if (s.db < min) min = s.db;
+      if (s.db > max) max = s.db;
+      if (s.db >= dbLower && s.db <= dbUpper) inRange++;
+    }
+    return {
+      mean: sum / valid.length,
+      min,
+      max,
+      inRange,
+      total: valid.length,
+      inRangePct: (inRange / valid.length) * 100,
+    };
+  }, [samples, dbLower, dbUpper]);
+
+  const handleDragValue = useCallback(
+    (v: number) => {
+      const cur = draggingRef.current;
+      if (!cur) return;
+      if (cur.chart === "pitch") {
+        const f = Math.max(F_MIN + 1, Math.min(F_MAX - 1, v));
+        if (cur.bound === "low") setLowerBound(Math.min(f, upperBound - 5));
+        else setUpperBound(Math.max(f, lowerBound + 5));
+        setPresetId("custom");
       } else {
-        setUpperBound(Math.max(freq, lowerBound + 5));
+        const d = Math.max(DB_MIN + 1, Math.min(DB_MAX - 1, v));
+        if (cur.bound === "low") setDbLower(Math.min(d, dbUpper - 3));
+        else setDbUpper(Math.max(d, dbLower + 3));
       }
-      setPresetId("custom");
     },
-    [dragging, lowerBound, upperBound],
-  );
-
-  const handleSvgMouseMove = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => updateDragFromClientY(e.clientY),
-    [updateDragFromClientY],
-  );
-
-  const handleSvgTouchMove = useCallback(
-    (e: React.TouchEvent<SVGSVGElement>) => {
-      if (!dragging) return;
-      e.preventDefault();
-      const touch = e.touches[0];
-      if (touch) updateDragFromClientY(touch.clientY);
-    },
-    [dragging, updateDragFromClientY],
+    [lowerBound, upperBound, dbLower, dbUpper],
   );
 
   const endDrag = useCallback(() => setDragging(null), []);
@@ -269,10 +339,14 @@ export default function PitchMeter() {
 
   const exportCSV = useCallback(() => {
     if (samples.length === 0) return;
-    const lines = ["time_sec,f0_hz,in_target_range"];
+    const lines = ["time_sec,f0_hz,in_pitch_range,db_spl,in_db_range"];
     for (const s of samples) {
-      const inRange = s.f0 >= lowerBound && s.f0 <= upperBound ? 1 : 0;
-      lines.push(`${s.t.toFixed(3)},${s.f0.toFixed(2)},${inRange}`);
+      const inPitch =
+        s.f0 != null && s.f0 >= lowerBound && s.f0 <= upperBound ? 1 : 0;
+      const inDb = s.db != null && s.db >= dbLower && s.db <= dbUpper ? 1 : 0;
+      lines.push(
+        `${s.t.toFixed(3)},${s.f0 != null ? s.f0.toFixed(2) : ""},${inPitch},${s.db != null ? s.db.toFixed(2) : ""},${inDb}`,
+      );
     }
     const blob = new Blob([lines.join("\n")], {
       type: "text/csv;charset=utf-8",
@@ -281,31 +355,22 @@ export default function PitchMeter() {
     const a = document.createElement("a");
     a.href = url;
     const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    a.download = `pitch_${ts}.csv`;
+    a.download = `pitch_intensity_${ts}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [samples, lowerBound, upperBound]);
+  }, [samples, lowerBound, upperBound, dbLower, dbUpper]);
 
-  const pathData = useMemo(() => {
-    if (samples.length === 0) return "";
-    const parts: string[] = [];
-    let lastT = -1;
-    for (const s of samples) {
-      const x = timeToX(s.t, duration);
-      const y = freqToY(s.f0);
-      if (lastT < 0 || s.t - lastT > GAP_THRESHOLD_SEC) {
-        parts.push(`M ${x.toFixed(2)} ${y.toFixed(2)}`);
-      } else {
-        parts.push(`L ${x.toFixed(2)} ${y.toFixed(2)}`);
-      }
-      lastT = s.t;
-    }
-    return parts.join(" ");
-  }, [samples, duration]);
+  const pitchPath = useMemo(
+    () => buildPath(samples, "f0", pitchScale.toY, duration),
+    [samples, pitchScale, duration],
+  );
+  const dbPath = useMemo(
+    () => buildPath(samples, "db", dbScale.toY, duration),
+    [samples, dbScale, duration],
+  );
 
-  const gridFreqs = [60, 80, 100, 150, 200, 300, 400];
   const gridTimes = useMemo(() => {
     const step = duration <= 15 ? 3 : duration <= 30 ? 5 : 10;
     const out: number[] = [];
@@ -313,10 +378,6 @@ export default function PitchMeter() {
     if (out[out.length - 1] !== duration) out.push(duration);
     return out;
   }, [duration]);
-
-  const lowerY = freqToY(lowerBound);
-  const upperY = freqToY(upperBound);
-  const inRangeColor = "#dcfce7";
 
   return (
     <div className="space-y-4">
@@ -421,287 +482,54 @@ export default function PitchMeter() {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="min-w-[640px]">
-          <svg
-            ref={svgRef}
-            viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-            className="w-full touch-none select-none"
-            onMouseMove={handleSvgMouseMove}
-            onMouseUp={endDrag}
-            onMouseLeave={endDrag}
-            onTouchMove={handleSvgTouchMove}
-            onTouchEnd={endDrag}
-            onTouchCancel={endDrag}
-          >
-            <rect
-              x={PADDING.left}
-              y={PADDING.top}
-              width={CHART_WIDTH - PADDING.left - PADDING.right}
-              height={CHART_HEIGHT - PADDING.top - PADDING.bottom}
-              fill="#f8fafc"
-            />
+      {/* 피치 (F0) 트랙 */}
+      <TrackChart
+        height={PITCH_H}
+        duration={duration}
+        elapsed={elapsed}
+        isRecording={isRecording}
+        scale={pitchScale}
+        gridValues={[60, 80, 100, 150, 200, 300, 400]}
+        gridTimes={gridTimes}
+        rightLabel={freqToNoteName}
+        unit="Hz"
+        yAxisLabel="주파수 (Hz)"
+        pathData={pitchPath}
+        lineColor="#2563eb"
+        currentValue={isRecording ? currentF0 : null}
+        lower={lowerBound}
+        upper={upperBound}
+        bandColor="#dcfce7"
+        activeBound={dragging?.chart === "pitch" ? dragging.bound : null}
+        onDragStart={(bound) => setDragging({ chart: "pitch", bound })}
+        onDragValue={handleDragValue}
+        onDragEnd={endDrag}
+        caption="상한·하한 막대를 끌어 목표 음역대를 설정하세요. 녹색 영역이 목표 범위입니다."
+      />
 
-            <rect
-              x={PADDING.left}
-              y={upperY}
-              width={CHART_WIDTH - PADDING.left - PADDING.right}
-              height={Math.max(0, lowerY - upperY)}
-              fill={inRangeColor}
-              opacity={0.55}
-            />
-
-            {gridFreqs.map((f) => {
-              const y = freqToY(f);
-              return (
-                <g key={`hf-${f}`}>
-                  <line
-                    x1={PADDING.left}
-                    x2={CHART_WIDTH - PADDING.right}
-                    y1={y}
-                    y2={y}
-                    stroke="#e2e8f0"
-                    strokeDasharray="3 3"
-                  />
-                  <text
-                    x={PADDING.left - 10}
-                    y={y + 5}
-                    textAnchor="end"
-                    fontSize={14}
-                    fill="#475569"
-                    fontWeight={500}
-                  >
-                    {f}
-                  </text>
-                  <text
-                    x={CHART_WIDTH - PADDING.right + 10}
-                    y={y + 5}
-                    textAnchor="start"
-                    fontSize={13}
-                    fill="#64748b"
-                  >
-                    {freqToNoteName(f)}
-                  </text>
-                </g>
-              );
-            })}
-
-            {gridTimes.map((t) => {
-              const x = timeToX(t, duration);
-              return (
-                <g key={`vt-${t}`}>
-                  <line
-                    x1={x}
-                    x2={x}
-                    y1={PADDING.top}
-                    y2={CHART_HEIGHT - PADDING.bottom}
-                    stroke="#e2e8f0"
-                    strokeDasharray="3 3"
-                  />
-                  <text
-                    x={x}
-                    y={CHART_HEIGHT - PADDING.bottom + 18}
-                    textAnchor="middle"
-                    fontSize={14}
-                    fill="#475569"
-                    fontWeight={500}
-                  >
-                    {t}s
-                  </text>
-                </g>
-              );
-            })}
-
-            <line
-              x1={PADDING.left}
-              x2={PADDING.left}
-              y1={PADDING.top}
-              y2={CHART_HEIGHT - PADDING.bottom}
-              stroke="#cbd5e1"
-            />
-            <line
-              x1={PADDING.left}
-              x2={CHART_WIDTH - PADDING.right}
-              y1={CHART_HEIGHT - PADDING.bottom}
-              y2={CHART_HEIGHT - PADDING.bottom}
-              stroke="#cbd5e1"
-            />
-
-            <text
-              x={24}
-              y={CHART_HEIGHT / 2}
-              textAnchor="middle"
-              fontSize={14}
-              fill="#334155"
-              fontWeight={500}
-              transform={`rotate(-90 24 ${CHART_HEIGHT / 2})`}
-            >
-              주파수 (Hz)
-            </text>
-            <text
-              x={CHART_WIDTH / 2}
-              y={CHART_HEIGHT - 6}
-              textAnchor="middle"
-              fontSize={14}
-              fill="#334155"
-              fontWeight={500}
-            >
-              시간 (초)
-            </text>
-
-            {pathData && (
-              <path
-                d={pathData}
-                fill="none"
-                stroke="#2563eb"
-                strokeWidth={2.5}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            )}
-
-            {isRecording && (
-              <line
-                x1={timeToX(elapsed, duration)}
-                x2={timeToX(elapsed, duration)}
-                y1={PADDING.top}
-                y2={CHART_HEIGHT - PADDING.bottom}
-                stroke="#94a3b8"
-                strokeWidth={1}
-              />
-            )}
-
-            {currentF0 !== null && isRecording && (
-              <circle
-                cx={timeToX(elapsed, duration)}
-                cy={freqToY(currentF0)}
-                r={6}
-                fill="#2563eb"
-                stroke="white"
-                strokeWidth={2}
-              />
-            )}
-
-            <g
-              style={{ cursor: "ns-resize" }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                setDragging("high");
-              }}
-              onTouchStart={(e) => {
-                e.preventDefault();
-                setDragging("high");
-              }}
-            >
-              <line
-                x1={PADDING.left}
-                x2={CHART_WIDTH - PADDING.right}
-                y1={upperY}
-                y2={upperY}
-                stroke="#dc2626"
-                strokeWidth={2.5}
-              />
-              <rect
-                x={PADDING.left - 64}
-                y={upperY - 13}
-                width={56}
-                height={26}
-                fill="#dc2626"
-                rx={5}
-              />
-              <text
-                x={PADDING.left - 36}
-                y={upperY + 5}
-                textAnchor="middle"
-                fontSize={13}
-                fill="white"
-                fontWeight={700}
-              >
-                상한
-              </text>
-              <rect
-                x={CHART_WIDTH - PADDING.right + 6}
-                y={upperY - 13}
-                width={68}
-                height={26}
-                fill="#dc2626"
-                rx={5}
-              />
-              <text
-                x={CHART_WIDTH - PADDING.right + 40}
-                y={upperY + 5}
-                textAnchor="middle"
-                fontSize={13}
-                fill="white"
-                fontWeight={700}
-              >
-                {upperBound.toFixed(0)} Hz
-              </text>
-            </g>
-
-            <g
-              style={{ cursor: "ns-resize" }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                setDragging("low");
-              }}
-              onTouchStart={(e) => {
-                e.preventDefault();
-                setDragging("low");
-              }}
-            >
-              <line
-                x1={PADDING.left}
-                x2={CHART_WIDTH - PADDING.right}
-                y1={lowerY}
-                y2={lowerY}
-                stroke="#059669"
-                strokeWidth={2.5}
-              />
-              <rect
-                x={PADDING.left - 64}
-                y={lowerY - 13}
-                width={56}
-                height={26}
-                fill="#059669"
-                rx={5}
-              />
-              <text
-                x={PADDING.left - 36}
-                y={lowerY + 5}
-                textAnchor="middle"
-                fontSize={13}
-                fill="white"
-                fontWeight={700}
-              >
-                하한
-              </text>
-              <rect
-                x={CHART_WIDTH - PADDING.right + 6}
-                y={lowerY - 13}
-                width={68}
-                height={26}
-                fill="#059669"
-                rx={5}
-              />
-              <text
-                x={CHART_WIDTH - PADDING.right + 40}
-                y={lowerY + 5}
-                textAnchor="middle"
-                fontSize={13}
-                fill="white"
-                fontWeight={700}
-              >
-                {lowerBound.toFixed(0)} Hz
-              </text>
-            </g>
-          </svg>
-        </div>
-        <p className="mt-2 text-xs text-slate-500">
-          상한·하한 막대를 위/아래로 끌어 목표 음역대를 설정하세요 (마우스/터치
-          모두 지원). 녹색 영역이 목표 범위입니다.
-        </p>
-      </div>
+      {/* 강도 (dB) 트랙 — 같은 녹음·같은 시간축 */}
+      <TrackChart
+        height={INTENSITY_H}
+        duration={duration}
+        elapsed={elapsed}
+        isRecording={isRecording}
+        scale={dbScale}
+        gridValues={[40, 50, 60, 70, 80, 90]}
+        gridTimes={gridTimes}
+        unit="dB"
+        yAxisLabel="강도 (dB SPL 추정)"
+        pathData={dbPath}
+        lineColor="#e11d48"
+        currentValue={isRecording ? currentDb : null}
+        lower={dbLower}
+        upper={dbUpper}
+        bandColor="#dcfce7"
+        activeBound={dragging?.chart === "intensity" ? dragging.bound : null}
+        onDragStart={(bound) => setDragging({ chart: "intensity", bound })}
+        onDragValue={handleDragValue}
+        onDragEnd={endDrag}
+        caption={`상한·하한 막대를 끌어 목표 강도 구간을 설정하세요 (LSVT LOUD 권장 70–85 dB). RMS→dBFS+${DB_OFFSET} 추정값으로 절대값보다 상대 변화 추적에 적합.`}
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatBox
@@ -712,26 +540,62 @@ export default function PitchMeter() {
         />
         <StatBox
           label="평균 F0"
-          value={stats.total ? `${stats.mean.toFixed(1)} Hz` : "-"}
-          sub={stats.total ? freqToNoteName(stats.mean) : ""}
+          value={pitchStats.total ? `${pitchStats.mean.toFixed(1)} Hz` : "-"}
+          sub={pitchStats.total ? freqToNoteName(pitchStats.mean) : ""}
           accent="slate"
         />
         <StatBox
           label="음역 (min ~ max)"
           value={
-            stats.total
-              ? `${stats.min.toFixed(0)} ~ ${stats.max.toFixed(0)} Hz`
+            pitchStats.total
+              ? `${pitchStats.min.toFixed(0)} ~ ${pitchStats.max.toFixed(0)} Hz`
               : "-"
           }
           sub={
-            stats.total ? `${stats.rangeSemitones.toFixed(1)} semitone` : ""
+            pitchStats.total
+              ? `${pitchStats.rangeSemitones.toFixed(1)} semitone`
+              : ""
           }
           accent="violet"
         />
         <StatBox
           label="목표 음역대 체류"
-          value={stats.total ? `${stats.inRangePct.toFixed(1)} %` : "-"}
-          sub={stats.total ? `${stats.inRange} / ${stats.total} 샘플` : ""}
+          value={pitchStats.total ? `${pitchStats.inRangePct.toFixed(1)} %` : "-"}
+          sub={
+            pitchStats.total
+              ? `${pitchStats.inRange} / ${pitchStats.total} 샘플`
+              : ""
+          }
+          accent="emerald"
+        />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatBox
+          label="현재 강도"
+          value={currentDb ? `${currentDb.toFixed(1)} dB` : "-"}
+          accent="rose"
+        />
+        <StatBox
+          label="평균 강도"
+          value={dbStats.total ? `${dbStats.mean.toFixed(1)} dB` : "-"}
+          accent="slate"
+        />
+        <StatBox
+          label="강도 범위"
+          value={
+            dbStats.total
+              ? `${dbStats.min.toFixed(0)} ~ ${dbStats.max.toFixed(0)} dB`
+              : "-"
+          }
+          accent="violet"
+        />
+        <StatBox
+          label="목표 강도 체류"
+          value={dbStats.total ? `${dbStats.inRangePct.toFixed(1)} %` : "-"}
+          sub={
+            dbStats.total ? `${dbStats.inRange} / ${dbStats.total} 샘플` : ""
+          }
           accent="emerald"
         />
       </div>
@@ -742,22 +606,350 @@ export default function PitchMeter() {
         </div>
       )}
 
-      {!isRecording && stats.total > 0 && (
+      {!isRecording && samples.length > 0 && (
         <SaveToHistory
           moduleId="pitch"
           summary={{
-            "평균F0(Hz)": +stats.mean.toFixed(1),
-            "최소F0(Hz)": +stats.min.toFixed(1),
-            "최대F0(Hz)": +stats.max.toFixed(1),
-            "음역(semitone)": +stats.rangeSemitones.toFixed(1),
-            "목표체류(%)": +stats.inRangePct.toFixed(1),
-            "목표하한": lowerBound,
-            "목표상한": upperBound,
+            "평균F0(Hz)": +pitchStats.mean.toFixed(1),
+            "최소F0(Hz)": +pitchStats.min.toFixed(1),
+            "최대F0(Hz)": +pitchStats.max.toFixed(1),
+            "음역(semitone)": +pitchStats.rangeSemitones.toFixed(1),
+            "음역체류(%)": +pitchStats.inRangePct.toFixed(1),
+            "음역하한": lowerBound,
+            "음역상한": upperBound,
+            "평균강도(dB)": +dbStats.mean.toFixed(1),
+            "최소강도(dB)": +dbStats.min.toFixed(1),
+            "최대강도(dB)": +dbStats.max.toFixed(1),
+            "강도체류(%)": +dbStats.inRangePct.toFixed(1),
+            "강도하한": dbLower,
+            "강도상한": dbUpper,
             "녹음시간(초)": duration,
           }}
         />
       )}
     </div>
+  );
+}
+
+function TrackChart({
+  height,
+  duration,
+  elapsed,
+  isRecording,
+  scale,
+  gridValues,
+  gridTimes,
+  rightLabel,
+  unit,
+  yAxisLabel,
+  pathData,
+  lineColor,
+  currentValue,
+  lower,
+  upper,
+  bandColor,
+  activeBound,
+  onDragStart,
+  onDragValue,
+  onDragEnd,
+  caption,
+}: {
+  height: number;
+  duration: number;
+  elapsed: number;
+  isRecording: boolean;
+  scale: Scale;
+  gridValues: number[];
+  gridTimes: number[];
+  rightLabel?: (v: number) => string;
+  unit: string;
+  yAxisLabel: string;
+  pathData: string;
+  lineColor: string;
+  currentValue: number | null;
+  lower: number;
+  upper: number;
+  bandColor: string;
+  activeBound: "low" | "high" | null;
+  onDragStart: (bound: "low" | "high") => void;
+  onDragValue: (v: number) => void;
+  onDragEnd: () => void;
+  caption: string;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const moveFromClientY = useCallback(
+    (clientY: number) => {
+      if (!activeBound || !svgRef.current) return;
+      const rect = svgRef.current.getBoundingClientRect();
+      const scaleY = height / rect.height;
+      const localY = (clientY - rect.top) * scaleY;
+      onDragValue(scale.toVal(localY));
+    },
+    [activeBound, height, scale, onDragValue],
+  );
+
+  const lowerY = scale.toY(lower);
+  const upperY = scale.toY(upper);
+  const innerW = CHART_WIDTH - PADDING.left - PADDING.right;
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="min-w-[640px]">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${CHART_WIDTH} ${height}`}
+          className="w-full touch-none select-none"
+          onMouseMove={(e) => moveFromClientY(e.clientY)}
+          onMouseUp={onDragEnd}
+          onMouseLeave={onDragEnd}
+          onTouchMove={(e) => {
+            if (!activeBound) return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            if (touch) moveFromClientY(touch.clientY);
+          }}
+          onTouchEnd={onDragEnd}
+          onTouchCancel={onDragEnd}
+        >
+          <rect
+            x={PADDING.left}
+            y={PADDING.top}
+            width={innerW}
+            height={height - PADDING.top - PADDING.bottom}
+            fill="#f8fafc"
+          />
+
+          <rect
+            x={PADDING.left}
+            y={upperY}
+            width={innerW}
+            height={Math.max(0, lowerY - upperY)}
+            fill={bandColor}
+            opacity={0.55}
+          />
+
+          {gridValues.map((v) => {
+            const y = scale.toY(v);
+            return (
+              <g key={`hv-${v}`}>
+                <line
+                  x1={PADDING.left}
+                  x2={CHART_WIDTH - PADDING.right}
+                  y1={y}
+                  y2={y}
+                  stroke="#e2e8f0"
+                  strokeDasharray="3 3"
+                />
+                <text
+                  x={PADDING.left - 10}
+                  y={y + 5}
+                  textAnchor="end"
+                  fontSize={14}
+                  fill="#475569"
+                  fontWeight={500}
+                >
+                  {v}
+                </text>
+                {rightLabel && (
+                  <text
+                    x={CHART_WIDTH - PADDING.right + 10}
+                    y={y + 5}
+                    textAnchor="start"
+                    fontSize={13}
+                    fill="#64748b"
+                  >
+                    {rightLabel(v)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+
+          {gridTimes.map((t) => {
+            const x = timeToX(t, duration);
+            return (
+              <g key={`vt-${t}`}>
+                <line
+                  x1={x}
+                  x2={x}
+                  y1={PADDING.top}
+                  y2={height - PADDING.bottom}
+                  stroke="#e2e8f0"
+                  strokeDasharray="3 3"
+                />
+                <text
+                  x={x}
+                  y={height - PADDING.bottom + 18}
+                  textAnchor="middle"
+                  fontSize={14}
+                  fill="#475569"
+                  fontWeight={500}
+                >
+                  {t}s
+                </text>
+              </g>
+            );
+          })}
+
+          <line
+            x1={PADDING.left}
+            x2={PADDING.left}
+            y1={PADDING.top}
+            y2={height - PADDING.bottom}
+            stroke="#cbd5e1"
+          />
+          <line
+            x1={PADDING.left}
+            x2={CHART_WIDTH - PADDING.right}
+            y1={height - PADDING.bottom}
+            y2={height - PADDING.bottom}
+            stroke="#cbd5e1"
+          />
+
+          <text
+            x={24}
+            y={height / 2}
+            textAnchor="middle"
+            fontSize={14}
+            fill="#334155"
+            fontWeight={500}
+            transform={`rotate(-90 24 ${height / 2})`}
+          >
+            {yAxisLabel}
+          </text>
+          <text
+            x={CHART_WIDTH / 2}
+            y={height - 6}
+            textAnchor="middle"
+            fontSize={14}
+            fill="#334155"
+            fontWeight={500}
+          >
+            시간 (초)
+          </text>
+
+          {pathData && (
+            <path
+              d={pathData}
+              fill="none"
+              stroke={lineColor}
+              strokeWidth={2.5}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          )}
+
+          {isRecording && (
+            <line
+              x1={timeToX(elapsed, duration)}
+              x2={timeToX(elapsed, duration)}
+              y1={PADDING.top}
+              y2={height - PADDING.bottom}
+              stroke="#94a3b8"
+              strokeWidth={1}
+            />
+          )}
+
+          {currentValue !== null && isRecording && (
+            <circle
+              cx={timeToX(elapsed, duration)}
+              cy={scale.toY(currentValue)}
+              r={6}
+              fill={lineColor}
+              stroke="white"
+              strokeWidth={2}
+            />
+          )}
+
+          <Handle
+            label="상한"
+            y={upperY}
+            value={upper}
+            unit={unit}
+            color="#dc2626"
+            onStart={() => onDragStart("high")}
+          />
+          <Handle
+            label="하한"
+            y={lowerY}
+            value={lower}
+            unit={unit}
+            color="#059669"
+            onStart={() => onDragStart("low")}
+          />
+        </svg>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">{caption}</p>
+    </div>
+  );
+}
+
+function Handle({
+  label,
+  y,
+  value,
+  unit,
+  color,
+  onStart,
+}: {
+  label: string;
+  y: number;
+  value: number;
+  unit: string;
+  color: string;
+  onStart: () => void;
+}) {
+  return (
+    <g
+      style={{ cursor: "ns-resize" }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onStart();
+      }}
+      onTouchStart={(e) => {
+        e.preventDefault();
+        onStart();
+      }}
+    >
+      <line
+        x1={PADDING.left}
+        x2={CHART_WIDTH - PADDING.right}
+        y1={y}
+        y2={y}
+        stroke={color}
+        strokeWidth={2.5}
+      />
+      <rect x={PADDING.left - 64} y={y - 13} width={56} height={26} fill={color} rx={5} />
+      <text
+        x={PADDING.left - 36}
+        y={y + 5}
+        textAnchor="middle"
+        fontSize={13}
+        fill="white"
+        fontWeight={700}
+      >
+        {label}
+      </text>
+      <rect
+        x={CHART_WIDTH - PADDING.right + 6}
+        y={y - 13}
+        width={68}
+        height={26}
+        fill={color}
+        rx={5}
+      />
+      <text
+        x={CHART_WIDTH - PADDING.right + 40}
+        y={y + 5}
+        textAnchor="middle"
+        fontSize={13}
+        fill="white"
+        fontWeight={700}
+      >
+        {value.toFixed(0)} {unit}
+      </text>
+    </g>
   );
 }
 
@@ -769,14 +961,15 @@ function StatBox({
 }: {
   label: string;
   value: string;
-  sub: string;
-  accent: "blue" | "slate" | "violet" | "emerald";
+  sub?: string;
+  accent: "blue" | "slate" | "violet" | "emerald" | "rose";
 }) {
   const colors: Record<typeof accent, string> = {
     blue: "border-blue-200 bg-blue-50",
     slate: "border-slate-200 bg-slate-50",
     violet: "border-violet-200 bg-violet-50",
     emerald: "border-emerald-200 bg-emerald-50",
+    rose: "border-rose-200 bg-rose-50",
   };
   return (
     <div className={`rounded-xl border ${colors[accent]} px-4 py-3`}>
