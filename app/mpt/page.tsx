@@ -6,6 +6,7 @@ import SaveToHistory from "@/components/SaveToHistory";
 import { decodeAudioFile } from "@/components/audioFile";
 import { yinPitch } from "@/components/pitch/yin";
 import { freqToNoteName } from "@/components/pitch/noteUtils";
+import { downloadReport } from "@/components/report";
 
 const WAVE_CAPACITY = 260; // 스크롤 파형 막대 수
 
@@ -238,6 +239,47 @@ export default function MptPage() {
     setTrials((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
+  const downloadMptReport = useCallback(() => {
+    if (trials.length === 0) return;
+    const m = trials.reduce((a, b) => a + b.duration, 0) / trials.length;
+    const mx = Math.max(...trials.map((t) => t.duration));
+    const mn = Math.min(...trials.map((t) => t.duration));
+    const s =
+      trials.length > 1
+        ? Math.sqrt(
+            trials.reduce((acc, t) => acc + (t.duration - m) ** 2, 0) /
+              (trials.length - 1),
+          )
+        : 0;
+    downloadReport(
+      {
+        title: "MPT — 최대발성지속시간 리포트",
+        subtitle: `${trials.length}회 측정`,
+        sections: [
+          {
+            heading: "측정 요약",
+            rows: [
+              { label: "평균 MPT", value: `${m.toFixed(2)} 초` },
+              { label: "최대", value: `${mx.toFixed(2)} 초` },
+              { label: "최소", value: `${mn.toFixed(2)} 초` },
+              { label: "표준편차", value: `${s.toFixed(2)} 초` },
+            ],
+          },
+          {
+            heading: "시도별 기록",
+            rows: trials.map((t, i) => ({
+              label: `${i + 1}회차`,
+              value: `${t.duration.toFixed(2)} 초`,
+            })),
+          },
+        ],
+        footnote:
+          "참고 정상범위 — 성인 남 25–35초, 성인 여 15–25초 (Hirano 1981; 보은아 외 2023). 발성을 멈추면 자동 종료(0.5초)되며 최댓값을 임상 지표로 사용합니다.",
+      },
+      "mpt",
+    );
+  }, [trials]);
+
   const resetAll = useCallback(() => {
     stopMic();
     setTrials([]);
@@ -361,7 +403,12 @@ export default function MptPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">시도 기록</h2>
-            {trials.length > 0 && <button onClick={resetAll} className="text-xs text-slate-500 hover:text-rose-600">전체 초기화</button>}
+            {trials.length > 0 && (
+              <div className="flex items-center gap-3">
+                <button onClick={downloadMptReport} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100">📄 리포트 다운로드</button>
+                <button onClick={resetAll} className="text-xs text-slate-500 hover:text-rose-600">전체 초기화</button>
+              </div>
+            )}
           </div>
           {trials.length === 0 ? (
             <p className="text-sm text-slate-500">아직 측정된 기록이 없습니다.</p>
