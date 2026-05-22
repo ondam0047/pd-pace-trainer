@@ -28,8 +28,7 @@ const DB_MIN = 30;
 const DB_MAX = 100;
 const DB_OFFSET = 80; // dBFS → dB SPL 추정 오프셋 (캘리브레이션 없이)
 const CHART_WIDTH = 900;
-const PITCH_H = 360;
-const INTENSITY_H = 300;
+const CHART_H = 440;
 const PADDING = { top: 24, right: 80, bottom: 44, left: 80 };
 const GAP_THRESHOLD_SEC = 0.15;
 
@@ -144,8 +143,8 @@ export default function PitchMeter() {
     fftSizeRef.current = fftSize;
   }, [fftSize]);
 
-  const pitchScale = useMemo(() => logScale(F_MIN, F_MAX, PITCH_H), []);
-  const dbScale = useMemo(() => linScale(DB_MIN, DB_MAX, INTENSITY_H), []);
+  const pitchScale = useMemo(() => logScale(F_MIN, F_MAX, CHART_H), []);
+  const dbScale = useMemo(() => linScale(DB_MIN, DB_MAX, CHART_H), []);
 
   const stop = useCallback(() => {
     if (rafRef.current !== null) {
@@ -590,53 +589,29 @@ export default function PitchMeter() {
         </div>
       )}
 
-      {/* 피치 (F0) 트랙 */}
-      <TrackChart
-        height={PITCH_H}
+      {/* 피치(F0) + 강도(dB) 통합 차트 — 이중 Y축 */}
+      <DualTrackChart
+        height={CHART_H}
         duration={effDur}
         elapsed={elapsed}
         isRecording={isRecording}
-        scale={pitchScale}
-        gridValues={[60, 80, 100, 150, 200, 300, 400]}
+        pitchScale={pitchScale}
+        dbScale={dbScale}
+        pitchGrid={[60, 80, 100, 150, 200, 300, 400]}
+        dbGrid={[40, 50, 60, 70, 80, 90]}
         gridTimes={gridTimes}
-        rightLabel={freqToNoteName}
-        unit="Hz"
-        yAxisLabel="주파수 (Hz)"
-        pathData={pitchPath}
-        lineColor="#2563eb"
-        currentValue={isRecording ? currentF0 : null}
-        lower={lowerBound}
-        upper={upperBound}
-        bandColor="#dcfce7"
-        activeBound={dragging?.chart === "pitch" ? dragging.bound : null}
-        onDragStart={(bound) => setDragging({ chart: "pitch", bound })}
+        pitchPath={pitchPath}
+        dbPath={dbPath}
+        currentF0={isRecording ? currentF0 : null}
+        currentDb={isRecording ? currentDb : null}
+        pitchLower={lowerBound}
+        pitchUpper={upperBound}
+        dbLower={dbLower}
+        dbUpper={dbUpper}
+        dragging={dragging}
+        onDragStart={(chart, bound) => setDragging({ chart, bound })}
         onDragValue={handleDragValue}
         onDragEnd={endDrag}
-        caption="상한·하한 막대를 끌어 목표 음역대를 설정하세요. 녹색 영역이 목표 범위입니다."
-      />
-
-      {/* 강도 (dB) 트랙 — 같은 녹음·같은 시간축 */}
-      <TrackChart
-        height={INTENSITY_H}
-        duration={effDur}
-        elapsed={elapsed}
-        isRecording={isRecording}
-        scale={dbScale}
-        gridValues={[40, 50, 60, 70, 80, 90]}
-        gridTimes={gridTimes}
-        unit="dB"
-        yAxisLabel="강도 (dB SPL 추정)"
-        pathData={dbPath}
-        lineColor="#e11d48"
-        currentValue={isRecording ? currentDb : null}
-        lower={dbLower}
-        upper={dbUpper}
-        bandColor="#dcfce7"
-        activeBound={dragging?.chart === "intensity" ? dragging.bound : null}
-        onDragStart={(bound) => setDragging({ chart: "intensity", bound })}
-        onDragValue={handleDragValue}
-        onDragEnd={endDrag}
-        caption={`상한·하한 막대를 끌어 목표 강도 구간을 설정하세요 (LSVT LOUD 권장 70–85 dB). RMS→dBFS+${DB_OFFSET} 추정값으로 절대값보다 상대 변화 추적에 적합.`}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -760,71 +735,88 @@ export default function PitchMeter() {
   );
 }
 
-function TrackChart({
+function DualTrackChart({
   height,
   duration,
   elapsed,
   isRecording,
-  scale,
-  gridValues,
+  pitchScale,
+  dbScale,
+  pitchGrid,
+  dbGrid,
   gridTimes,
-  rightLabel,
-  unit,
-  yAxisLabel,
-  pathData,
-  lineColor,
-  currentValue,
-  lower,
-  upper,
-  bandColor,
-  activeBound,
+  pitchPath,
+  dbPath,
+  currentF0,
+  currentDb,
+  pitchLower,
+  pitchUpper,
+  dbLower,
+  dbUpper,
+  dragging,
   onDragStart,
   onDragValue,
   onDragEnd,
-  caption,
 }: {
   height: number;
   duration: number;
   elapsed: number;
   isRecording: boolean;
-  scale: Scale;
-  gridValues: number[];
+  pitchScale: Scale;
+  dbScale: Scale;
+  pitchGrid: number[];
+  dbGrid: number[];
   gridTimes: number[];
-  rightLabel?: (v: number) => string;
-  unit: string;
-  yAxisLabel: string;
-  pathData: string;
-  lineColor: string;
-  currentValue: number | null;
-  lower: number;
-  upper: number;
-  bandColor: string;
-  activeBound: "low" | "high" | null;
-  onDragStart: (bound: "low" | "high") => void;
+  pitchPath: string;
+  dbPath: string;
+  currentF0: number | null;
+  currentDb: number | null;
+  pitchLower: number;
+  pitchUpper: number;
+  dbLower: number;
+  dbUpper: number;
+  dragging: { chart: "pitch" | "intensity"; bound: "low" | "high" } | null;
+  onDragStart: (chart: "pitch" | "intensity", bound: "low" | "high") => void;
   onDragValue: (v: number) => void;
   onDragEnd: () => void;
-  caption: string;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const PITCH_COLOR = "#2563eb";
+  const DB_COLOR = "#e11d48";
+  const innerW = CHART_WIDTH - PADDING.left - PADDING.right;
+  const plotBottom = height - PADDING.bottom;
 
   const moveFromClientY = useCallback(
     (clientY: number) => {
-      if (!activeBound || !svgRef.current) return;
+      if (!dragging || !svgRef.current) return;
       const rect = svgRef.current.getBoundingClientRect();
       const scaleY = height / rect.height;
       const localY = (clientY - rect.top) * scaleY;
+      const scale = dragging.chart === "pitch" ? pitchScale : dbScale;
       onDragValue(scale.toVal(localY));
     },
-    [activeBound, height, scale, onDragValue],
+    [dragging, height, pitchScale, dbScale, onDragValue],
   );
 
-  const lowerY = scale.toY(lower);
-  const upperY = scale.toY(upper);
-  const innerW = CHART_WIDTH - PADDING.left - PADDING.right;
+  const pUpperY = pitchScale.toY(pitchUpper);
+  const pLowerY = pitchScale.toY(pitchLower);
+  const dUpperY = dbScale.toY(dbUpper);
+  const dLowerY = dbScale.toY(dbLower);
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="min-w-[640px]">
+      <div className="mb-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
+        <span className="flex items-center gap-1.5 font-medium" style={{ color: PITCH_COLOR }}>
+          <span className="inline-block h-2.5 w-4 rounded" style={{ background: PITCH_COLOR }} />
+          F0 (Hz · 좌축)
+        </span>
+        <span className="flex items-center gap-1.5 font-medium" style={{ color: DB_COLOR }}>
+          <span className="inline-block h-2.5 w-4 rounded" style={{ background: DB_COLOR }} />
+          강도 (dB · 우축)
+        </span>
+        <span className="text-slate-400">막대를 끌어 목표 구간 설정 (좌=음역, 우=강도)</span>
+      </div>
+      <div className="min-w-[680px]">
         <svg
           ref={svgRef}
           viewBox={`0 0 ${CHART_WIDTH} ${height}`}
@@ -833,64 +825,35 @@ function TrackChart({
           onMouseUp={onDragEnd}
           onMouseLeave={onDragEnd}
           onTouchMove={(e) => {
-            if (!activeBound) return;
+            if (!dragging) return;
             e.preventDefault();
-            const touch = e.touches[0];
-            if (touch) moveFromClientY(touch.clientY);
+            const t = e.touches[0];
+            if (t) moveFromClientY(t.clientY);
           }}
           onTouchEnd={onDragEnd}
           onTouchCancel={onDragEnd}
         >
-          <rect
-            x={PADDING.left}
-            y={PADDING.top}
-            width={innerW}
-            height={height - PADDING.top - PADDING.bottom}
-            fill="#f8fafc"
-          />
+          <rect x={PADDING.left} y={PADDING.top} width={innerW} height={plotBottom - PADDING.top} fill="#f8fafc" />
 
-          <rect
-            x={PADDING.left}
-            y={upperY}
-            width={innerW}
-            height={Math.max(0, lowerY - upperY)}
-            fill={bandColor}
-            opacity={0.55}
-          />
+          <rect x={PADDING.left} y={pUpperY} width={innerW} height={Math.max(0, pLowerY - pUpperY)} fill={PITCH_COLOR} opacity={0.08} />
+          <rect x={PADDING.left} y={dUpperY} width={innerW} height={Math.max(0, dLowerY - dUpperY)} fill={DB_COLOR} opacity={0.08} />
 
-          {gridValues.map((v) => {
-            const y = scale.toY(v);
+          {pitchGrid.map((v) => {
+            const y = pitchScale.toY(v);
             return (
-              <g key={`hv-${v}`}>
-                <line
-                  x1={PADDING.left}
-                  x2={CHART_WIDTH - PADDING.right}
-                  y1={y}
-                  y2={y}
-                  stroke="#e2e8f0"
-                  strokeDasharray="3 3"
-                />
-                <text
-                  x={PADDING.left - 10}
-                  y={y + 5}
-                  textAnchor="end"
-                  fontSize={14}
-                  fill="#475569"
-                  fontWeight={500}
-                >
-                  {v}
-                </text>
-                {rightLabel && (
-                  <text
-                    x={CHART_WIDTH - PADDING.right + 10}
-                    y={y + 5}
-                    textAnchor="start"
-                    fontSize={13}
-                    fill="#64748b"
-                  >
-                    {rightLabel(v)}
-                  </text>
-                )}
+              <g key={`hz-${v}`}>
+                <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={y} y2={y} stroke="#eef2f6" strokeDasharray="3 3" />
+                <text x={PADDING.left - 10} y={y + 4} textAnchor="end" fontSize={12} fill={PITCH_COLOR} fontWeight={500}>{v}</text>
+              </g>
+            );
+          })}
+
+          {dbGrid.map((v) => {
+            const y = dbScale.toY(v);
+            return (
+              <g key={`db-${v}`}>
+                <line x1={CHART_WIDTH - PADDING.right} x2={CHART_WIDTH - PADDING.right + 5} y1={y} y2={y} stroke={DB_COLOR} />
+                <text x={CHART_WIDTH - PADDING.right + 10} y={y + 4} textAnchor="start" fontSize={12} fill={DB_COLOR} fontWeight={500}>{v}</text>
               </g>
             );
           })}
@@ -899,185 +862,72 @@ function TrackChart({
             const x = timeToX(t, duration);
             return (
               <g key={`vt-${t}`}>
-                <line
-                  x1={x}
-                  x2={x}
-                  y1={PADDING.top}
-                  y2={height - PADDING.bottom}
-                  stroke="#e2e8f0"
-                  strokeDasharray="3 3"
-                />
-                <text
-                  x={x}
-                  y={height - PADDING.bottom + 18}
-                  textAnchor="middle"
-                  fontSize={14}
-                  fill="#475569"
-                  fontWeight={500}
-                >
-                  {t}s
-                </text>
+                <line x1={x} x2={x} y1={PADDING.top} y2={plotBottom} stroke="#eef2f6" strokeDasharray="3 3" />
+                <text x={x} y={plotBottom + 18} textAnchor="middle" fontSize={13} fill="#475569" fontWeight={500}>{t}s</text>
               </g>
             );
           })}
 
-          <line
-            x1={PADDING.left}
-            x2={PADDING.left}
-            y1={PADDING.top}
-            y2={height - PADDING.bottom}
-            stroke="#cbd5e1"
-          />
-          <line
-            x1={PADDING.left}
-            x2={CHART_WIDTH - PADDING.right}
-            y1={height - PADDING.bottom}
-            y2={height - PADDING.bottom}
-            stroke="#cbd5e1"
-          />
+          <line x1={PADDING.left} x2={PADDING.left} y1={PADDING.top} y2={plotBottom} stroke={PITCH_COLOR} strokeOpacity={0.5} />
+          <line x1={CHART_WIDTH - PADDING.right} x2={CHART_WIDTH - PADDING.right} y1={PADDING.top} y2={plotBottom} stroke={DB_COLOR} strokeOpacity={0.5} />
+          <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={plotBottom} y2={plotBottom} stroke="#cbd5e1" />
 
-          <text
-            x={24}
-            y={height / 2}
-            textAnchor="middle"
-            fontSize={14}
-            fill="#334155"
-            fontWeight={500}
-            transform={`rotate(-90 24 ${height / 2})`}
-          >
-            {yAxisLabel}
-          </text>
-          <text
-            x={CHART_WIDTH / 2}
-            y={height - 6}
-            textAnchor="middle"
-            fontSize={14}
-            fill="#334155"
-            fontWeight={500}
-          >
-            시간 (초)
-          </text>
+          <text x={22} y={height / 2} textAnchor="middle" fontSize={13} fill={PITCH_COLOR} fontWeight={600} transform={`rotate(-90 22 ${height / 2})`}>F0 (Hz)</text>
+          <text x={CHART_WIDTH - 18} y={height / 2} textAnchor="middle" fontSize={13} fill={DB_COLOR} fontWeight={600} transform={`rotate(90 ${CHART_WIDTH - 18} ${height / 2})`}>강도 (dB)</text>
+          <text x={CHART_WIDTH / 2} y={height - 6} textAnchor="middle" fontSize={13} fill="#334155" fontWeight={500}>시간 (초)</text>
 
-          {pathData && (
-            <path
-              d={pathData}
-              fill="none"
-              stroke={lineColor}
-              strokeWidth={2.5}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          )}
+          {dbPath && <path d={dbPath} fill="none" stroke={DB_COLOR} strokeWidth={2.25} strokeLinejoin="round" strokeLinecap="round" />}
+          {pitchPath && <path d={pitchPath} fill="none" stroke={PITCH_COLOR} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />}
 
           {isRecording && (
-            <line
-              x1={timeToX(elapsed, duration)}
-              x2={timeToX(elapsed, duration)}
-              y1={PADDING.top}
-              y2={height - PADDING.bottom}
-              stroke="#94a3b8"
-              strokeWidth={1}
-            />
+            <line x1={timeToX(elapsed, duration)} x2={timeToX(elapsed, duration)} y1={PADDING.top} y2={plotBottom} stroke="#94a3b8" strokeWidth={1} />
+          )}
+          {currentDb !== null && isRecording && (
+            <circle cx={timeToX(elapsed, duration)} cy={dbScale.toY(currentDb)} r={5.5} fill={DB_COLOR} stroke="white" strokeWidth={2} />
+          )}
+          {currentF0 !== null && isRecording && (
+            <circle cx={timeToX(elapsed, duration)} cy={pitchScale.toY(currentF0)} r={5.5} fill={PITCH_COLOR} stroke="white" strokeWidth={2} />
           )}
 
-          {currentValue !== null && isRecording && (
-            <circle
-              cx={timeToX(elapsed, duration)}
-              cy={scale.toY(currentValue)}
-              r={6}
-              fill={lineColor}
-              stroke="white"
-              strokeWidth={2}
-            />
-          )}
-
-          <Handle
-            label="상한"
-            y={upperY}
-            value={upper}
-            unit={unit}
-            color="#dc2626"
-            onStart={() => onDragStart("high")}
-          />
-          <Handle
-            label="하한"
-            y={lowerY}
-            value={lower}
-            unit={unit}
-            color="#059669"
-            onStart={() => onDragStart("low")}
-          />
+          <DualHandle y={pUpperY} value={pitchUpper} unit="Hz" color={PITCH_COLOR} side="left" onStart={() => onDragStart("pitch", "high")} />
+          <DualHandle y={pLowerY} value={pitchLower} unit="Hz" color={PITCH_COLOR} side="left" onStart={() => onDragStart("pitch", "low")} />
+          <DualHandle y={dUpperY} value={dbUpper} unit="dB" color={DB_COLOR} side="right" onStart={() => onDragStart("intensity", "high")} />
+          <DualHandle y={dLowerY} value={dbLower} unit="dB" color={DB_COLOR} side="right" onStart={() => onDragStart("intensity", "low")} />
         </svg>
       </div>
-      <p className="mt-2 text-xs text-slate-500">{caption}</p>
     </div>
   );
 }
 
-function Handle({
-  label,
+function DualHandle({
   y,
   value,
   unit,
   color,
+  side,
   onStart,
 }: {
-  label: string;
   y: number;
   value: number;
   unit: string;
   color: string;
+  side: "left" | "right";
   onStart: () => void;
 }) {
+  const boxW = 60;
+  const boxX = side === "left" ? PADDING.left - boxW - 4 : CHART_WIDTH - PADDING.right + 4;
+  const textX = boxX + boxW / 2;
   return (
-    <g
-      style={{ cursor: "ns-resize" }}
-      onMouseDown={(e) => {
-        e.preventDefault();
-        onStart();
-      }}
-      onTouchStart={(e) => {
-        e.preventDefault();
-        onStart();
-      }}
-    >
-      <line
-        x1={PADDING.left}
-        x2={CHART_WIDTH - PADDING.right}
-        y1={y}
-        y2={y}
-        stroke={color}
-        strokeWidth={2.5}
-      />
-      <rect x={PADDING.left - 64} y={y - 13} width={56} height={26} fill={color} rx={5} />
-      <text
-        x={PADDING.left - 36}
-        y={y + 5}
-        textAnchor="middle"
-        fontSize={13}
-        fill="white"
-        fontWeight={700}
+    <g>
+      <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={y} y2={y} stroke={color} strokeWidth={1.5} strokeDasharray="6 4" pointerEvents="none" />
+      <g
+        style={{ cursor: "ns-resize" }}
+        onMouseDown={(e) => { e.preventDefault(); onStart(); }}
+        onTouchStart={(e) => { e.preventDefault(); onStart(); }}
       >
-        {label}
-      </text>
-      <rect
-        x={CHART_WIDTH - PADDING.right + 6}
-        y={y - 13}
-        width={68}
-        height={26}
-        fill={color}
-        rx={5}
-      />
-      <text
-        x={CHART_WIDTH - PADDING.right + 40}
-        y={y + 5}
-        textAnchor="middle"
-        fontSize={13}
-        fill="white"
-        fontWeight={700}
-      >
-        {value.toFixed(0)} {unit}
-      </text>
+        <rect x={boxX} y={y - 11} width={boxW} height={22} fill={color} rx={5} />
+        <text x={textX} y={y + 4} textAnchor="middle" fontSize={12} fill="white" fontWeight={700}>{value.toFixed(0)} {unit}</text>
+      </g>
     </g>
   );
 }
