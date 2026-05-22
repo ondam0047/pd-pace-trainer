@@ -17,6 +17,7 @@ import { tagFromTranscript } from "@/components/fluency/transcriptTagger";
 import WaveformTimeline, {
   type TimelineMarker,
 } from "@/components/fluency/WaveformTimeline";
+import { EMBLEM_MARK_SVG } from "@/components/emblem";
 
 // P-FA-II (파라다이스-유창성 검사 II) 비유창성 유형
 //  - ND (정상적 비유창): 주저(H)·간투사(I)·미완성/수정(UR)·반복1(R1)
@@ -890,6 +891,11 @@ export default function FluencyPage() {
 
             {/* ─── 보고서 ─── */}
             <div className="fl-report rounded-2xl border border-slate-300 bg-white p-6 shadow-sm">
+              <div
+                className="fl-watermark"
+                aria-hidden="true"
+                dangerouslySetInnerHTML={{ __html: EMBLEM_MARK_SVG }}
+              />
               <div className="mb-4 flex items-start justify-between gap-2">
                 <div>
                   <h2 className="text-xl font-bold text-slate-900">

@@ -20,6 +20,8 @@ export interface ReportSpec {
   footnote?: string;
 }
 
+import { EMBLEM_MARK_SVG } from "./emblem";
+
 function esc(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -73,9 +75,15 @@ function buildHtml(spec: ReportSpec): string {
   .foot { margin-top: 20px; font-size: 11px; color:#64748b; line-height: 1.6; }
   .genat { margin-top: 4px; font-size: 11px; color:#94a3b8; }
   .printbtn { margin: 16px 0; padding: 8px 16px; border:1px solid #cbd5e1; border-radius:8px; background:#0f172a; color:#fff; cursor:pointer; font-size:13px; }
+  body { position: relative; }
+  .wm { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 62%; max-width: 460px; color: #1ba8db; opacity: 0.06; z-index: 0; pointer-events: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .wm svg { width: 100%; height: auto; display: block; }
+  .content { position: relative; z-index: 1; }
   @media print { .printbtn { display:none; } body { padding: 0; } }
 </style></head>
 <body>
+  <div class="wm">${EMBLEM_MARK_SVG}</div>
+  <div class="content">
   <button class="printbtn" onclick="window.print()">인쇄 / PDF 저장</button>
   <h1>${esc(spec.title)}</h1>
   ${spec.subtitle ? `<div class="sub">${esc(spec.subtitle)}</div>` : ""}
@@ -87,6 +95,7 @@ function buildHtml(spec: ReportSpec): string {
   ${sectionsHtml}
   ${spec.footnote ? `<div class="foot">${esc(spec.footnote)}</div>` : ""}
   <div class="genat">생성: ${esc(dateStr)} · 대림대학교 Voice Lab</div>
+  </div>
 </body></html>`;
 }
 
