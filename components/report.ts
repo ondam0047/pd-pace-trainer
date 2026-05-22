@@ -16,6 +16,7 @@ export interface ReportSection {
 export interface ReportSpec {
   title: string;
   subtitle?: string;
+  chartSvg?: string; // 신뢰 가능한 앱 생성 SVG 문자열 (예: MDVP 레이더)
   sections: ReportSection[];
   footnote?: string;
 }
@@ -79,6 +80,9 @@ function buildHtml(spec: ReportSpec): string {
   .wm { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 62%; max-width: 460px; color: #1ba8db; opacity: 0.06; z-index: 0; pointer-events: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .wm svg { width: 100%; height: auto; display: block; }
   .content { position: relative; z-index: 1; }
+  .chart { max-width: 420px; margin: 14px auto 2px; }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .chart-cap { text-align: center; font-size: 11px; color:#64748b; margin-bottom: 6px; }
   @media print { .printbtn { display:none; } body { padding: 0; } }
 </style></head>
 <body>
@@ -92,6 +96,7 @@ function buildHtml(spec: ReportSpec): string {
     <span>평가자 <span class="blank"></span></span>
     <span>검사일 <span class="blank"></span></span>
   </div>
+  ${spec.chartSvg ? `<div class="chart">${spec.chartSvg}</div><div class="chart-cap">초록 원 = 정상 임계값 · 점이 원 밖(빨강)이면 이상</div>` : ""}
   ${sectionsHtml}
   ${spec.footnote ? `<div class="foot">${esc(spec.footnote)}</div>` : ""}
   <div class="genat">생성: ${esc(dateStr)} · 대림대학교 Voice Lab</div>

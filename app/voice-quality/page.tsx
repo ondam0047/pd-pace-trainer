@@ -15,6 +15,7 @@ import {
 import SaveToHistory from "@/components/SaveToHistory";
 import { decodeAudioFile } from "@/components/audioFile";
 import MdvpRadar from "@/components/voiceQuality/MdvpRadar";
+import { mdvpRadarSvg } from "@/components/voiceQuality/mdvpRadarSvg";
 import { downloadReport, type ReportRow } from "@/components/report";
 
 const RECORD_DURATION_SEC = 3;
@@ -165,6 +166,7 @@ export default function VoiceQualityPage() {
       {
         title: "음질 분석 (MDVP) 리포트",
         subtitle: `유효 ${r.validFrames} 프레임 · ${r.durationSec.toFixed(2)}초 · 프레임 단위 근사(MDVP/Praat 대조 권장)`,
+        chartSvg: mdvpRadarSvg(r),
         sections: [
           {
             heading: "기본주파수 (F0)",
