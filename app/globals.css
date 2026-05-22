@@ -237,6 +237,25 @@ body {
   .vl-category-count { font-size: 10px; padding: 4px 9px; }
 }
 
+/* 보고서 워터마크 (대림대 언어치료학과 엠블럼) */
+.fl-report { position: relative; }
+.fl-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 60%;
+  max-width: 420px;
+  color: #1ba8db;
+  opacity: 0.06;
+  z-index: 0;
+  pointer-events: none;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.fl-watermark svg { width: 100%; height: auto; display: block; }
+.fl-report > *:not(.fl-watermark) { position: relative; z-index: 1; }
+
 /* 보고서 인쇄: .fl-report 영역만 출력 */
 @media print {
   body * { visibility: hidden; }
