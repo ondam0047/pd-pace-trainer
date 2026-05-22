@@ -42,7 +42,7 @@ type Module = { href: string; title: string; subtitle: string; description: stri
 
 const MODULES: Module[] = [
   { href: "/pitch", title: "실시간 피치·강도", subtitle: "F0 + dB Tracking", description: "F0·음역 + 강도 바이오피드백(LSVT LOUD) 통합 시계열 분석", color: "blue", status: "ready" },
-  { href: "/vocal-tract", title: "모음·자음 시각화", subtitle: "Vocal Tract", description: "실시간 F1/F2 + 자음 조음 위치 + 마찰음 변별 + 3D 조음", color: "blue", status: "ready" },
+  { href: "/vocal-tract", title: "모음·자음 시각화", subtitle: "Vocal Tract", description: "마찰음 변별 훈련 (/s/·/ʃ/·/ɕ/ 스펙트럼 중심) · 3D 조음 준비중", color: "blue", status: "ready" },
   { href: "/voice-quality", title: "음질 분석", subtitle: "Voice Quality", description: "jitter · shimmer · HNR 자동 추출", color: "blue", status: "ready" },
   { href: "/mpt", title: "MPT", subtitle: "Maximum Phonation Time", description: "최대발성지속시간 · 3회 평균 자동 계산", color: "emerald", status: "ready" },
   { href: "/speech-rate", title: "말속도 분석", subtitle: "Speech Rate Suite", description: "녹음 → VAD 자동 분할 + ASR 음절 카운트 + 전체/조음속도", color: "amber", status: "ready" },
