@@ -84,9 +84,9 @@ body {
   background-image: radial-gradient(1200px 600px at 85% -10%, rgba(27, 168, 219, 0.12) 0%, transparent 60%), radial-gradient(900px 500px at -10% 10%, rgba(109, 211, 163, 0.06) 0%, transparent 55%);
 }
 
-.vl-wrap { max-width: 1240px; margin: 0 auto; padding: 28px 40px 80px; }
+.vl-wrap { max-width: 1240px; margin: 0 auto; padding: 18px 40px 80px; }
 
-.vl-topbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 28px; border-bottom: 1px solid var(--line); margin-bottom: 44px; }
+.vl-topbar { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 28px; }
 .vl-brand { display: flex; align-items: center; gap: 14px; }
 .vl-brand-mark { width: 40px; height: 40px; flex: none; border-radius: 50%; background: var(--brand-bg); display: inline-flex; align-items: center; justify-content: center; }
 .vl-brand-mark svg { width: 30px; height: 30px; color: var(--brand); }
@@ -103,21 +103,21 @@ body {
 .vl-theme-toggle:hover { color: var(--brand-d); border-color: var(--brand-d); }
 .vl-theme-toggle svg { width: 17px; height: 17px; }
 
-.vl-hero { display: grid; grid-template-columns: 1.35fr 1fr; gap: 56px; align-items: center; margin-bottom: 56px; }
-.vl-eyebrow { font-size: 11.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.vl-hero { display: grid; grid-template-columns: 1.35fr 1fr; gap: 48px; align-items: center; margin-bottom: 32px; }
+.vl-eyebrow { font-size: 11.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .vl-eyebrow::after { content: ""; height: 1px; flex: 1; max-width: 120px; background: linear-gradient(to right, var(--line-2), transparent); }
-.vl-title { font-family: var(--font-fraunces), "Noto Sans KR", serif; font-weight: 600; font-size: clamp(40px, 5.4vw, 68px); line-height: 1.02; letter-spacing: -0.025em; margin: 0 0 22px; color: var(--ink); }
+.vl-title { font-family: var(--font-fraunces), "Noto Sans KR", serif; font-weight: 600; font-size: clamp(34px, 4.4vw, 54px); line-height: 1.03; letter-spacing: -0.025em; margin: 0 0 16px; color: var(--ink); }
 .vl-title .accent { font-style: italic; font-weight: 400; }
 .vl-title .em { color: var(--brand-d); }
-.vl-lede { font-size: 16.5px; line-height: 1.65; color: var(--ink-2); max-width: 560px; }
-.vl-meta-row { display: flex; gap: 22px; margin-top: 28px; flex-wrap: wrap; }
+.vl-lede { font-size: 15.5px; line-height: 1.6; color: var(--ink-2); max-width: 560px; }
+.vl-meta-row { display: flex; gap: 22px; margin-top: 18px; flex-wrap: wrap; }
 .vl-meta { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--ink-3); white-space: nowrap; }
 .vl-meta b { color: var(--ink); font-weight: 600; font-feature-settings: "tnum"; font-size: 15px; }
 
-.vl-crest-stage { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 40px 32px 32px; background: radial-gradient(60% 60% at 50% 35%, var(--surface) 0%, rgba(255, 255, 255, 0) 70%); border: 1px solid var(--line); border-radius: 18px; position: relative; isolation: isolate; }
+.vl-crest-stage { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px 28px 20px; background: radial-gradient(60% 60% at 50% 35%, var(--surface) 0%, rgba(255, 255, 255, 0) 70%); border: 1px solid var(--line); border-radius: 18px; position: relative; isolation: isolate; }
 .vl-crest-stage::before { content: ""; position: absolute; inset: 0; border-radius: 18px; background: repeating-linear-gradient(45deg, rgba(27, 168, 219, 0.04) 0 2px, transparent 2px 14px); z-index: -1; }
-.vl-crest-stage::after { content: ""; position: absolute; width: 280px; height: 280px; border-radius: 50%; background: radial-gradient(circle, rgba(27, 168, 219, 0.18) 0%, transparent 65%); top: 20px; left: 50%; transform: translateX(-50%); z-index: -1; filter: blur(20px); }
-.vl-crest { width: min(260px, 78%); height: auto; display: block; filter: drop-shadow(0 8px 24px rgba(27, 168, 219, 0.18)); color: var(--brand); }
+.vl-crest-stage::after { content: ""; position: absolute; width: 210px; height: 210px; border-radius: 50%; background: radial-gradient(circle, rgba(27, 168, 219, 0.18) 0%, transparent 65%); top: 12px; left: 50%; transform: translateX(-50%); z-index: -1; filter: blur(18px); }
+.vl-crest { width: min(188px, 64%); height: auto; display: block; filter: drop-shadow(0 8px 24px rgba(27, 168, 219, 0.18)); color: var(--brand); }
 .vl-crest-divider { width: 60px; height: 1px; background: var(--line-2); }
 .vl-crest-cap { text-align: center; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .vl-crest-cap .yr { font-family: var(--font-jetbrains-mono), monospace; color: var(--ink); }
