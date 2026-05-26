@@ -4,6 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
 import { saveSession, listSessions } from "./evalStorage";
 import { downloadEvalCsv, downloadEvalReport } from "./evalExport";
+import {
+  DEFAULT_A11Y, loadA11y, saveA11y,
+  fontScaleMultiplier, fontScaleLabel, nextFontScale,
+  speak, stopSpeaking,
+} from "./evalA11y";
 
 /*
  voicelab 허브 · 지산학 사업 평가 모듈
@@ -41,6 +46,17 @@ const OXButtons = ({ value, onSet }) => (
     <button onClick={() => onSet(1)} className={`w-12 h-10 rounded-lg font-bold ${value === 1 ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-500"}`}>O</button>
     <button onClick={() => onSet(0)} className={`w-12 h-10 rounded-lg font-bold ${value === 0 ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-500"}`}>X</button>
   </div>
+);
+
+// 음성안내 ON 일 때만 동작하는 작은 읽어주기 버튼. 클릭 시점에 a11y 설정을 확인.
+const SpeakBtn = ({ text, label = "🔊", className = "" }) => (
+  <button
+    type="button"
+    onClick={(e) => { e.stopPropagation(); const a = loadA11y(); if (a.ttsOn) speak(text, true); }}
+    title="읽어 주기 (음성안내 ON 일 때만)"
+    className={`inline-flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 hover:bg-teal-100 text-slate-600 hover:text-teal-700 text-sm ${className}`}
+    aria-label="이 문장 읽어주기"
+  >{label}</button>
 );
 
 // 검사자 채점 기준 도움말 (접기/펼치기). 어르신에게 보여주는 게 아니라 검사자 참고용.
@@ -115,7 +131,10 @@ function ModCogReg({ onDone }) {
       <div className="bg-amber-50 rounded-xl p-4">
         <p className="font-semibold text-amber-900 mb-1">즉시기억 (등록)</p>
         <p className="text-slate-600">아래 세 단어를 또렷이 불러 주고 따라 말하게 하세요. 외울 때까지 최대 3회 반복하고, 시행별로 맞힌 단어를 표시합니다. <b className="text-amber-900">조금 뒤에 다시 여쭤볼 거라고 미리 알려 주세요.</b></p>
-        <p className="text-2xl font-bold text-teal-800 text-center my-3">{MEM_WORDS.join("  ·  ")}</p>
+        <div className="flex items-center justify-center gap-3 my-3">
+          <p className="text-2xl font-bold text-teal-800">{MEM_WORDS.join("  ·  ")}</p>
+          <SpeakBtn text={MEM_WORDS.join(", ")} />
+        </div>
       </div>
       {["t1", "t2", "t3"].map((t, ti) => (
         <div key={t} className="bg-slate-50 rounded-xl p-3">
@@ -408,7 +427,10 @@ function ModGDS({ onDone }) {
       </p>
       {GDS.map((it, i) => (
         <div key={i} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2">
-          <span className="text-lg text-slate-700 pr-3">{i + 1}. {it.q}</span>
+          <div className="flex items-center gap-2 pr-3 flex-1">
+            <SpeakBtn text={`${i + 1}번. ${it.q}`} />
+            <span className="text-lg text-slate-700">{i + 1}. {it.q}</span>
+          </div>
           <div className="flex gap-2 shrink-0">
             <button onClick={() => setAns({ ...ans, [i]: "yes" })} className={`w-16 h-10 rounded-lg font-bold ${ans[i] === "yes" ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-500"}`}>예</button>
             <button onClick={() => setAns({ ...ans, [i]: "no" })} className={`w-16 h-10 rounded-lg font-bold ${ans[i] === "no" ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-500"}`}>아니오</button>
@@ -472,7 +494,10 @@ function ModQOL({ onDone }) {
       <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">※ WHO 허가 승인 후 who.int 공식 한국어판 26문항·출처표기로 교체하세요(채점 동일).</p>
       {QOL.map((it, i) => (
         <div key={i} className="bg-slate-50 rounded-xl px-4 py-3">
-          <p className="text-lg text-slate-700 mb-2">{i + 1}. {it.q} <span className="text-xs text-slate-400">[{it.d}]</span></p>
+          <div className="flex items-start gap-2 mb-2">
+            <SpeakBtn text={`${i + 1}번. ${it.q}`} />
+            <p className="text-lg text-slate-700">{i + 1}. {it.q} <span className="text-xs text-slate-400">[{it.d}]</span></p>
+          </div>
           <div className="flex gap-2">
             {[1, 2, 3, 4, 5].map((v) => (
               <button key={v} onClick={() => setAns({ ...ans, [i]: v })} className={`flex-1 h-10 rounded-lg font-bold ${ans[i] === v ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-500"}`}>{v}</button>
@@ -687,21 +712,78 @@ function Field({ label, v, on, ph }) {
 }
 
 function Shell({ children, sub }) {
+  const [a11y, setA11y] = useState(DEFAULT_A11Y);
+  // SSR/CSR mismatch 방지: 마운트 이후에만 저장값 반영.
+  useEffect(() => { setA11y(loadA11y()); }, []);
+  useEffect(() => () => stopSpeaking(), []);
+  const update = (patch) => {
+    const next = { ...a11y, ...patch };
+    setA11y(next); saveA11y(next);
+    if (patch.ttsOn === false) stopSpeaking();
+  };
+  const mul = fontScaleMultiplier(a11y.fontScale);
+  const hc = a11y.highContrast;
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-100 to-slate-200 py-6 px-4" style={{ fontFamily: "'Pretendard','Malgun Gothic',system-ui,sans-serif" }}>
+    <div
+      className={`min-h-screen py-6 px-4 ${hc ? "bg-white" : "bg-gradient-to-b from-slate-100 to-slate-200"}`}
+      style={{
+        fontFamily: "'Pretendard','Malgun Gothic',system-ui,sans-serif",
+        fontSize: `${mul * 100}%`,
+      }}
+    >
       <div className="max-w-3xl mx-auto">
-        <header className="mb-5">
+        <A11yBar a11y={a11y} update={update} />
+        <header className={`mb-5 ${hc ? "border-b-2 border-black pb-2" : ""}`}>
           <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-teal-700 text-white grid place-items-center font-black">V</div>
+            <div className={`w-9 h-9 rounded-xl grid place-items-center font-black ${hc ? "bg-black text-white" : "bg-teal-700 text-white"}`}>V</div>
             <div>
-              <h1 className="text-xl font-extrabold text-slate-800 leading-none">voicelab 평가 모듈</h1>
-              <p className="text-sm text-slate-500">{sub}</p>
+              <h1 className={`text-xl font-extrabold leading-none ${hc ? "text-black" : "text-slate-800"}`}>voicelab 평가 모듈</h1>
+              <p className={`text-sm ${hc ? "text-black" : "text-slate-500"}`}>{sub}</p>
             </div>
           </div>
         </header>
         <div className="space-y-4">{children}</div>
-        <p className="text-center text-xs text-slate-400 mt-8">인지·언어 과제는 자체 제작. 우울(SGDS-K)·삶의질(WHOQOL-BREF)은 공식 문항/허가 적용 후 정식 운영하세요. 본 모듈은 변화 추적·기록 보조용이며 진단 도구가 아닙니다.</p>
+        <p className={`text-center text-xs mt-8 ${hc ? "text-black" : "text-slate-400"}`}>인지·언어 과제는 자체 제작. 우울(SGDS-K)·삶의질(WHOQOL-BREF)은 공식 문항/허가 적용 후 정식 운영하세요. 본 모듈은 변화 추적·기록 보조용이며 진단 도구가 아닙니다.</p>
       </div>
+    </div>
+  );
+}
+
+// 글씨 확대 · 고대비 · 음성 안내(TTS) 토글 바. 어르신·검사자 공용.
+function A11yBar({ a11y, update }) {
+  const btn = "px-3 py-1.5 rounded-lg text-sm font-semibold border-2 transition";
+  return (
+    <div className="flex items-center gap-2 flex-wrap mb-3 text-xs">
+      <span className="text-slate-500 mr-1">접근성:</span>
+      <button
+        type="button"
+        onClick={() => update({ fontScale: nextFontScale(a11y.fontScale) })}
+        className={`${btn} bg-white border-slate-300 text-slate-700 hover:border-teal-500`}
+        aria-label="글씨 크기 변경"
+      >글씨 {fontScaleLabel(a11y.fontScale)}</button>
+      <button
+        type="button"
+        onClick={() => update({ highContrast: !a11y.highContrast })}
+        className={`${btn} ${a11y.highContrast ? "bg-black text-white border-black" : "bg-white border-slate-300 text-slate-700 hover:border-teal-500"}`}
+        aria-pressed={a11y.highContrast}
+      >고대비 {a11y.highContrast ? "ON" : "OFF"}</button>
+      <button
+        type="button"
+        onClick={() => {
+          const next = !a11y.ttsOn;
+          update({ ttsOn: next });
+          if (next) speak("음성 안내를 켰어요. 검사자가 안내문을 누르면 읽어 드려요.", true);
+        }}
+        className={`${btn} ${a11y.ttsOn ? "bg-teal-700 text-white border-teal-700" : "bg-white border-slate-300 text-slate-700 hover:border-teal-500"}`}
+        aria-pressed={a11y.ttsOn}
+      >🔊 음성안내 {a11y.ttsOn ? "ON" : "OFF"}</button>
+      {a11y.ttsOn && (
+        <button
+          type="button"
+          onClick={stopSpeaking}
+          className={`${btn} bg-white border-slate-300 text-slate-700 hover:border-rose-500`}
+        >■ 멈춤</button>
+      )}
     </div>
   );
 }
