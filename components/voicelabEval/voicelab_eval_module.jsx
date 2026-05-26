@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
 import { saveSession, listSessions } from "./evalStorage";
+import { downloadEvalCsv, downloadEvalReport } from "./evalExport";
 
 /*
  voicelab 허브 · 지산학 사업 평가 모듈
@@ -41,6 +42,24 @@ const OXButtons = ({ value, onSet }) => (
     <button onClick={() => onSet(0)} className={`w-12 h-10 rounded-lg font-bold ${value === 0 ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-500"}`}>X</button>
   </div>
 );
+
+// 검사자 채점 기준 도움말 (접기/펼치기). 어르신에게 보여주는 게 아니라 검사자 참고용.
+const HelpToggle = ({ title = "검사자 채점 기준", children }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-slate-50 border border-slate-200 rounded-xl">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-2 text-left text-sm font-semibold text-slate-700 hover:text-teal-700"
+      >
+        <span>📘 {title}</span>
+        <span className="text-xs text-slate-500">{open ? "접기 ▲" : "펼치기 ▼"}</span>
+      </button>
+      {open && <div className="px-4 pb-3 text-sm text-slate-600 leading-relaxed space-y-1.5">{children}</div>}
+    </div>
+  );
+};
 
 // =================================================================
 // MODULE 1A. 인지 — 지남력 + 단어 외우기(등록)   [이름대기 전에 시행]
@@ -189,6 +208,12 @@ function ModNaming({ onDone }) {
   return (
     <div className="space-y-4">
       <p className="text-slate-500">그림카드를 보여 주고 명명 결과를 표시하세요. (O 정반응 / C 단서 후 정반응 / X 오반응)</p>
+      <HelpToggle title="이름대기 채점 기준 (O / C / X)">
+        <p><b className="text-emerald-700">O · 정반응</b>: 단서 없이 5초 이내 정확한 명명. 음운 오류가 사소하고 의도가 명확하면 O.</p>
+        <p><b className="text-amber-700">C · 단서 후 정반응</b>: 단서 위계(① 5–10초 기다림 → ② 의미단서 “과일이에요” → ③ 음소단서 첫소리 “/사/”) 중 어느 단계든 거친 뒤 정반응. 점수에는 들어가지 않지만 ‘단서후’로 카운트해 단서 의존도를 본다.</p>
+        <p><b className="text-rose-600">X · 오반응</b>: 단서를 모두 줘도 오반응/무반응, 혹은 의미 변질된 응답(예: 사과 → "열매"는 너무 일반적이면 X).</p>
+        <p className="text-slate-500">※ 보기/객관식으로 답을 주지 않는다. 대신 답해주지 않는다.</p>
+      </HelpToggle>
       <div className="grid gap-2">
         {NAMING.map((w, i) => (
           <div key={i} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2">
@@ -247,6 +272,11 @@ function ModFluency({ onDone }) {
   return (
     <div className="space-y-4">
       <p className="text-slate-500">1분 동안 해당하는 단어를 최대한 많이 말하게 합니다(COWAT 방식). 정상 노인은 ‘동물’에서 대략 15개 내외(연령·교육수준에 따라 변동). 본 모듈은 사전·사후 변화 비교가 주 목적입니다.</p>
+      <HelpToggle title="유창성 카운팅 기준 (중복·오류 제외)">
+        <p><b>제외</b>: ① 같은 단어 반복(개·개), ② 범주 밖(동물에서 ‘사과’), ③ 고유명사(우리집 강아지 이름 “복실이”), ④ 단순 어형 변형(가다·갔다·가니까는 음소유창성에서 1개로 본다).</p>
+        <p><b>인정</b>: 상위·하위 범주 모두 인정(개·진돗개·삽살개는 각각 1개). 외래어·방언 인정. 잘못 알고 있는 분류(‘고래는 물고기’)는 어르신 인지 기준 그대로 인정.</p>
+        <p>응답 흐름이 끊겨도 60초 그대로 운영. 단서 주지 않음. 끝난 뒤 검사자가 종합 판단으로 + 카운터 조정 가능.</p>
+      </HelpToggle>
       <FluencyTrial label="의미유창성 — 동물" hint="“동물 이름을 1분 동안 최대한 많이 말씀해 주세요.”" value={animal} onChange={setAnimal} />
       <FluencyTrial label="음소유창성 — ‘ㄱ’ (선택)" hint="“‘ㄱ’으로 시작하는 낱말을 1분 동안 말씀해 주세요.”" value={phon} onChange={setPhon} />
       <div className="flex items-center justify-between">
@@ -309,6 +339,11 @@ function ModDiscourse({ onDone }) {
         <p className="text-lg leading-relaxed text-slate-700">{STORY}</p>
       </div>
       <p className="text-slate-500">“들은 대로 이야기해 주세요.” 어르신이 회상한 핵심 정보를 임상가가 체크하세요.</p>
+      <HelpToggle title="정보단위 인정 범위">
+        <p><b>인정</b>: 의미가 통하면 표현 변형 OK ("시장에 가심" = "시장에 가려고"). 부분 정보도 동일 정보단위로 묶이면 1개.</p>
+        <p><b>제외</b>: 지문에 없는 가공 정보, 의미가 변질된 표현(예: "할머니가 강아지를 시장에 팔러 갔다"). 정보단위가 모호하면 보수적으로 인정 안 함.</p>
+        <p>순서/연결어/주어 누락은 정보단위 채점에 영향 없음. 자발화 분석은 별도 모듈에서.</p>
+      </HelpToggle>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {UNITS.map((u, i) => (
           <label key={i} className={`flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer border-2 ${chk[i] ? "bg-emerald-50 border-emerald-400" : "bg-white border-slate-200"}`}>
@@ -459,8 +494,12 @@ function ModQOL({ onDone }) {
 
 // =================================================================
 // 모듈 순서 정의
+//   FULL: 사전(pre) · 사후(post) — 8단계 풀배터리.
+//   MID : 중간점검(mid) — 6주차 빠른 점검. 변화 민감도 높은 이름대기·유창성만.
+//   * 인지 분할(등록 → 간섭과제 → 지연회상) 표준 순서는 FULL 에서 보장. MID 에서는
+//     지남력·기억 단계를 빼므로 cog_reg / cog_recall 도 제외 (분할이 의미가 없으므로).
 // =================================================================
-const MODULES = [
+const MODULES_FULL = [
   { key: "cog_reg", name: "인지 — 지남력·단어 외우기", comp: ModCogReg },
   { key: "naming", name: "이름대기", comp: ModNaming },
   { key: "cog_recall", name: "인지 — 지연회상·재인", comp: ModCogRecall },
@@ -470,6 +509,11 @@ const MODULES = [
   { key: "gds", name: "우울 (SGDS-K)", comp: ModGDS },
   { key: "qol", name: "삶의 질 (WHOQOL-BREF)", comp: ModQOL },
 ];
+const MODULES_MID = [
+  { key: "naming", name: "이름대기", comp: ModNaming },
+  { key: "fluency", name: "생성이름대기 (유창성)", comp: ModFluency },
+];
+const modulesFor = (tp) => (tp === "mid" ? MODULES_MID : MODULES_FULL);
 
 // =================================================================
 // 메인 앱
@@ -482,10 +526,14 @@ export default function App() {
   const [results, setResults] = useState({});
   const [sessions, setSessions] = useState([]);
   const [saved, setSaved] = useState(false);
+  const [consent, setConsent] = useState(null);
 
   useEffect(() => { listSessions().then(setSessions); }, [screen]);
 
-  const startEval = () => { setResults({}); setStep(0); setSaved(false); setScreen("eval"); };
+  const MODULES = modulesFor(timepoint);
+
+  const startEval = () => { setResults({}); setStep(0); setSaved(false); setConsent(null); setScreen("consent"); };
+  const confirmConsent = (c) => { setConsent(c); setScreen("eval"); };
   const onModuleDone = (key, r) => {
     const nr = { ...results, [key]: r };
     setResults(nr);
@@ -493,7 +541,7 @@ export default function App() {
     else setScreen("result");
   };
   const finalize = async () => {
-    const s = { id: info.id || ("익명-" + Date.now()), name: info.name, age: info.age, edu: info.edu, sex: info.sex, timepoint, date: new Date().toISOString().slice(0, 10), results };
+    const s = { id: info.id || ("익명-" + Date.now()), name: info.name, age: info.age, edu: info.edu, sex: info.sex, timepoint, date: new Date().toISOString().slice(0, 10), results, consent };
     await saveSession(s);
     setSaved(true);
     const all = await listSessions(); setSessions(all);
@@ -514,9 +562,14 @@ export default function App() {
             <Field label="교육 연수" v={info.edu} on={(v) => setInfo({ ...info, edu: v })} ph="년" />
           </div>
           <p className="font-semibold text-slate-700 mb-2">평가 시점</p>
-          <div className="flex gap-2 mb-6">
+          <div className="flex gap-2 mb-2">
             {Object.entries(TPS).map(([k, v]) => <Pill key={k} active={timepoint === k} onClick={() => setTimepoint(k)}>{v}</Pill>)}
           </div>
+          <p className="text-xs text-slate-500 mb-6">
+            {timepoint === "mid"
+              ? "중간 평가는 변화 민감도 높은 이름대기·유창성만 진행해요 (약 5분)."
+              : `${TPS[timepoint]} 평가는 풀배터리 ${MODULES_FULL.length}단계로 진행해요 (약 25–35분).`}
+          </p>
           <div className="flex gap-3">
             <Btn onClick={startEval} disabled={!info.id}>평가 시작 →</Btn>
             <Btn kind="ghost" onClick={() => setScreen("compare")}>사전·사후 비교 보기</Btn>
@@ -535,6 +588,17 @@ export default function App() {
           </Card>
         )}
       </Shell>
+    );
+  }
+
+  if (screen === "consent") {
+    return (
+      <ConsentScreen
+        info={info}
+        timepoint={timepoint}
+        onAgree={confirmConsent}
+        onCancel={() => setScreen("home")}
+      />
     );
   }
 
@@ -580,11 +644,26 @@ export default function App() {
               {allFlags.map((f, i) => <p key={i} className="text-rose-600">• {f}</p>)}
             </div>
           )}
-          <div className="flex gap-3 mt-6">
+          <div className="flex gap-3 mt-6 flex-wrap">
             {!saved ? <Btn kind="ok" onClick={finalize}>결과 저장</Btn> : <span className="px-5 py-3 text-emerald-700 font-semibold">✓ 저장됨</span>}
             <Btn kind="ghost" onClick={() => setScreen("compare")}>사전·사후 비교</Btn>
             <Btn kind="ghost" onClick={() => setScreen("home")}>처음으로</Btn>
           </div>
+          {saved && (
+            <div className="mt-4 pt-4 border-t border-slate-100 flex gap-3 flex-wrap">
+              <span className="text-sm font-semibold text-slate-500 self-center">내보내기:</span>
+              <Btn kind="ghost" onClick={() => {
+                const mine = sessions.filter((s) => s.id === (info.id || ""));
+                if (mine.length === 0) { alert("저장된 세션이 없어요."); return; }
+                downloadEvalReport(info.id, mine);
+              }}>보고서 (HTML/PDF)</Btn>
+              <Btn kind="ghost" onClick={() => {
+                const mine = sessions.filter((s) => s.id === (info.id || ""));
+                if (mine.length === 0) { alert("저장된 세션이 없어요."); return; }
+                downloadEvalCsv(mine, info.id);
+              }}>CSV (이 대상자)</Btn>
+            </div>
+          )}
         </Card>
       </Shell>
     );
@@ -686,6 +765,11 @@ function Compare({ ids, sessions, onBack }) {
               </table>
             </div>
             <p className="text-xs text-slate-400 mt-2">* 우울(SGDS-K)은 점수가 낮을수록 좋음 → 감소가 호전.</p>
+            <div className="mt-4 flex gap-3 flex-wrap">
+              <Btn kind="ghost" onClick={() => downloadEvalReport(sel, mine)} disabled={!sel || mine.length === 0}>보고서 (HTML/PDF)</Btn>
+              <Btn kind="ghost" onClick={() => downloadEvalCsv(mine, sel)} disabled={!sel || mine.length === 0}>CSV (이 대상자)</Btn>
+              <Btn kind="ghost" onClick={() => downloadEvalCsv(sessions, "전체")} disabled={sessions.length === 0}>CSV (전체)</Btn>
+            </div>
             <div className="mt-6" style={{ height: 280 }}>
               <p className="font-semibold text-slate-600 mb-2">사전 vs 사후 (최대 대비 %)</p>
               <ResponsiveContainer width="100%" height="100%">
@@ -702,6 +786,77 @@ function Compare({ ids, sessions, onBack }) {
             </div>
           </>
         )}
+      </Card>
+    </Shell>
+  );
+}
+
+// =================================================================
+// 동의 화면 — 평가 시작 전, 개인정보 수집·이용 동의 받기
+//   ※ IRB 미적용 방침이지만 동의서는 필수. 향후 논문화 가능성 대비 사전 IRB 권장
+//     (HANDOFF.md TODO 5 참고). 동의 항목·문구는 사업단·기관 정책에 맞춰 다듬으세요.
+// =================================================================
+const CONSENT_VERSION = "1.0-2025";
+const CONSENT_ITEMS = [
+  { key: "collect", label: "개인정보 수집·이용 동의 (필수)", body: "수집 항목: 성명, 나이, 교육연수, 성별, 평가 결과(점수·세부 응답·검사일). 이용 목적: 어르신 인지·언어·정서·삶의 질 변화 추적과 그룹 프로그램 성과 평가. 보관 기간: 사업 종료 후 3년, 이후 파기. 제3자 제공: 없음 (대림대 언어치료학과·㈜마인드허브·안양시노인종합복지관 사업 운영 범위 내에서만 사용)." },
+  { key: "purpose", label: "평가 성격에 대한 안내 동의 (필수)", body: "본 검사는 진단·선별 도구가 아니며 변화 추적·기록 보조용입니다. 결과로 치매 여부를 판정하지 않으며, 우울 SGDS-K ≥ 8 등 위험 신호가 나오면 치매안심센터·전문기관 연계를 권유드릴 수 있어요. 본인 의사로 언제든 중단할 수 있고, 검사 거부로 인한 불이익은 없습니다." },
+  { key: "withdraw", label: "철회·삭제 권리 안내 (필수)", body: "동의 후에도 언제든 본인 자료의 열람·수정·삭제·동의 철회를 요청할 수 있어요. 요청은 사업 담당자/검사자에게 구두 또는 서면으로 하세요." },
+];
+
+function ConsentScreen({ info, timepoint, onAgree, onCancel }) {
+  const [checked, setChecked] = useState({});
+  const [sig, setSig] = useState(info.name || "");
+  const allOk = CONSENT_ITEMS.every((it) => checked[it.key]) && sig.trim().length > 0;
+  const toggle = (k) => setChecked((c) => ({ ...c, [k]: !c[k] }));
+  return (
+    <Shell sub={`${info.name || info.id} · ${TPS[timepoint]} 평가 — 동의서`}>
+      <Card>
+        <h2 className="text-2xl font-bold text-slate-800 mb-1">개인정보 수집·이용 동의</h2>
+        <p className="text-slate-500 mb-5">
+          평가 시작 전, 아래 항목을 어르신께 안내해 드리고 동의를 받아 주세요.
+          검사자가 함께 읽어 드리는 것을 권장합니다. (글씨가 작아 보이면 브라우저 확대로 보세요.)
+        </p>
+        <div className="space-y-3">
+          {CONSENT_ITEMS.map((it) => (
+            <label key={it.key} className={`block px-4 py-3 rounded-xl border-2 cursor-pointer ${checked[it.key] ? "bg-emerald-50 border-emerald-400" : "bg-slate-50 border-slate-200"}`}>
+              <div className="flex items-start gap-3">
+                <input type="checkbox" checked={!!checked[it.key]} onChange={() => toggle(it.key)} className="w-5 h-5 mt-1 accent-emerald-600" />
+                <div>
+                  <p className="text-lg font-semibold text-slate-800">{it.label}</p>
+                  <p className="text-sm text-slate-600 mt-1 leading-relaxed">{it.body}</p>
+                </div>
+              </div>
+            </label>
+          ))}
+        </div>
+        <div className="mt-5">
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-500">동의 서명 (성함을 입력하면 서명으로 갈음)</span>
+            <input
+              value={sig}
+              onChange={(e) => setSig(e.target.value)}
+              placeholder="예: 김복순"
+              className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-300 text-lg focus:border-teal-500 focus:outline-none"
+            />
+          </label>
+        </div>
+        <p className="text-xs text-slate-400 mt-3">
+          동의 기록(시각·동의 항목·서명 성함·동의서 버전 {CONSENT_VERSION})이 평가 세션에 함께 저장됩니다.
+          동의가 없으면 평가를 시작할 수 없어요.
+        </p>
+        <div className="flex gap-3 mt-6 flex-wrap">
+          <Btn
+            kind="ok"
+            disabled={!allOk}
+            onClick={() => onAgree({
+              agreedAt: new Date().toISOString(),
+              version: CONSENT_VERSION,
+              items: CONSENT_ITEMS.filter((it) => checked[it.key]).map((it) => it.key),
+              signatureName: sig.trim(),
+            })}
+          >동의하고 평가 시작 →</Btn>
+          <Btn kind="ghost" onClick={onCancel}>취소 (처음으로)</Btn>
+        </div>
       </Card>
     </Shell>
   );

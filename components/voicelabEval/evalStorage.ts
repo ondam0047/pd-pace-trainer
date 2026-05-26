@@ -21,6 +21,13 @@ export interface EvalModuleResult {
   lowerBetter?: boolean;
 }
 
+export interface ConsentRecord {
+  agreedAt: string; // ISO timestamp
+  version: string;
+  items: string[]; // 동의한 항목 키 목록
+  signatureName: string; // 자필 서명 대용 (입력한 성함)
+}
+
 export interface EvalSession {
   id: string;
   name: string;
@@ -30,6 +37,8 @@ export interface EvalSession {
   timepoint: Timepoint;
   date: string; // YYYY-MM-DD
   results: Record<string, EvalModuleResult>;
+  /** 평가 시작 전 받은 수집·이용 동의 기록 (없으면 미동의 — 정식 운영 시 동의 없으면 시작 불가). */
+  consent?: ConsentRecord;
 }
 
 const PREFIX = "voicelab:eval:";
