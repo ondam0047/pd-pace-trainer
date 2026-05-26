@@ -82,7 +82,7 @@ const HelpToggle = ({ title = "검사자 채점 기준", children }) => {
 // MODULE 1A. 인지 — 지남력 + 단어 외우기(등록)   [이름대기 전에 시행]
 // MODULE 1B. 인지 — 지연회상 + 재인              [이름대기 후에 시행]
 //  임상 표준 순서: 등록 → 간섭과제(이름대기) → 지연회상.
-//  · 지남력(시간5 + 장소5)  · 즉시기억(3단어 ×3시행, 사람채점)
+//  · 지남력(시간5 + 장소5)  · 즉시기억(3단어 ×1시행, 사람채점) — 변화추적 목적이라 단순화
 //  · 지연회상(3단어, 사람채점)  · 재인(보기 4지선다, 자동채점)
 // =================================================================
 const ORI_TIME = ["연도", "계절", "월", "날짜(일)", "요일"];
@@ -105,10 +105,10 @@ const CogRow = ({ label, k, obj, set }) => (
 function ModCogReg({ onDone }) {
   const [phase, setPhase] = useState("orient"); // orient → register
   const [ori, setOri] = useState({});
-  const [reg, setReg] = useState({ t1: {}, t2: {}, t3: {} });
+  const [reg, setReg] = useState({});
   const oriScore = Object.values(ori).filter((x) => x === 1).length;
-  const regTrials = ["t1", "t2", "t3"].map((t) => MEM_WORDS.filter((_, i) => reg[t]["w" + i] === 1).length);
-  const regBest = Math.max(...regTrials);
+  // 즉시기억: 1회 시행, 3단어 중 따라 말한 수. 변화추적 목적이라 임상 표준 3회 시행에서 단순화.
+  const regScore = MEM_WORDS.filter((_, i) => reg["w" + i] === 1).length;
 
   if (phase === "orient") {
     return (
@@ -131,32 +131,30 @@ function ModCogReg({ onDone }) {
     <div className="space-y-4">
       <div className="bg-amber-50 rounded-xl p-4">
         <p className="font-semibold text-amber-900 mb-1">즉시기억 (등록)</p>
-        <p className="text-slate-600">아래 세 단어를 또렷이 불러 주고 따라 말하게 하세요. 외울 때까지 최대 3회 반복하고, 시행별로 맞힌 단어를 표시합니다. <b className="text-amber-900">조금 뒤에 다시 여쭤볼 거라고 미리 알려 주세요.</b></p>
+        <p className="text-slate-600">아래 세 단어를 또렷이 한 번 불러 주고 따라 말하게 하세요. 따라 말한 단어만 표시합니다. <b className="text-amber-900">조금 뒤에 다시 여쭤볼 거라고 미리 알려 주세요.</b></p>
         <div className="flex items-center justify-center gap-3 my-3">
           <p className="text-2xl font-bold text-teal-800">{MEM_WORDS.join("  ·  ")}</p>
           <SpeakBtn text={MEM_WORDS.join(", ")} />
         </div>
       </div>
-      {["t1", "t2", "t3"].map((t, ti) => (
-        <div key={t} className="bg-slate-50 rounded-xl p-3">
-          <p className="font-semibold text-slate-600 mb-1">{ti + 1}차 시행</p>
-          <div className="flex gap-2">
-            {MEM_WORDS.map((w, i) => (
-              <button key={i} onClick={() => setReg({ ...reg, [t]: { ...reg[t], ["w" + i]: reg[t]["w" + i] === 1 ? 0 : 1 } })}
-                className={`flex-1 h-11 rounded-lg font-bold ${reg[t]["w" + i] === 1 ? "bg-emerald-600 text-white" : "bg-white border border-slate-200 text-slate-400"}`}>{w}</button>
-            ))}
-          </div>
+      <div className="bg-slate-50 rounded-xl p-3">
+        <p className="font-semibold text-slate-600 mb-1">따라 말한 단어</p>
+        <div className="flex gap-2">
+          {MEM_WORDS.map((w, i) => (
+            <button key={i} onClick={() => setReg({ ...reg, ["w" + i]: reg["w" + i] === 1 ? 0 : 1 })}
+              className={`flex-1 h-11 rounded-lg font-bold ${reg["w" + i] === 1 ? "bg-emerald-600 text-white" : "bg-white border border-slate-200 text-slate-400"}`}>{w}</button>
+          ))}
         </div>
-      ))}
+      </div>
       <div className="bg-teal-50 border border-teal-200 rounded-xl p-3 text-teal-800">
         <p className="font-semibold">다음은 이름대기 과제입니다.</p>
-        <p className="text-sm">이름대기가 간섭과제(시간 지연) 역할을 합니다. 이름대기를 마치면 ‘인지 — 지연회상·재인’ 단계에서 방금 외운 단어를 다시 여쭤봅니다.</p>
+        <p className="text-sm">이름대기가 간섭과제(시간 지연) 역할을 합니다. 이름대기를 마치면 ‘인지 — 지연회상·재인’ 단계에서 방금 외운 단어를 단서 없이 다시 말씀하시는지(지연회상) 확인합니다.</p>
       </div>
       <div className="flex items-center justify-between">
-        <span className="text-lg font-semibold">즉시기억 최고 {regBest}/3</span>
+        <span className="text-lg font-semibold">즉시기억 {regScore}/3</span>
         <Btn onClick={() => onDone({
-          score: oriScore + regBest, max: 13,
-          detail: { 지남력: `${oriScore}/10`, 즉시기억: `${regBest}/3` },
+          score: oriScore + regScore, max: 13,
+          detail: { 지남력: `${oriScore}/10`, 즉시기억: `${regScore}/3` },
           flags: [],
         })}>다음: 이름대기 →</Btn>
       </div>
@@ -563,6 +561,14 @@ const QOL = [
   { q: "우울·불안 같은 부정적 기분을 자주 느끼십니까?", d: "심리", r: true },
 ];
 const DOMAINS = ["신체", "심리", "사회", "환경"];
+// 5점 척도 — 화면에는 라벨만 보이되 채점값(v)은 1~5 그대로 유지(영역점수 0~100 공식 동일).
+const QOL_SCALE = [
+  { v: 1, label: "전혀 아니다" },
+  { v: 2, label: "아니다" },
+  { v: 3, label: "보통이다" },
+  { v: 4, label: "그렇다" },
+  { v: 5, label: "매우 그렇다" },
+];
 function ModQOL({ onDone }) {
   const [ans, setAns] = useState({});
   const done = Object.keys(ans).length === 26;
@@ -575,7 +581,7 @@ function ModQOL({ onDone }) {
   };
   return (
     <div className="space-y-3">
-      <p className="text-slate-500">1(전혀 아니다) ~ 5(매우 그렇다)로 답하게 하세요. 영역점수가 높을수록 삶의 질이 좋음(진단 절단점 없음, 변화 추적용).</p>
+      <p className="text-slate-500">‘전혀 아니다 ~ 매우 그렇다’ 다섯 단계로 답하게 하세요. 영역점수가 높을수록 삶의 질이 좋음(진단 절단점 없음, 변화 추적용).</p>
       <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">※ WHO 허가 승인 후 who.int 공식 한국어판 26문항·출처표기로 교체하세요(채점 동일).</p>
       {QOL.map((it, i) => (
         <div key={i} className="bg-slate-50 rounded-xl px-4 py-3">
@@ -583,9 +589,14 @@ function ModQOL({ onDone }) {
             <SpeakBtn text={`${i + 1}번. ${it.q}`} />
             <p className="text-lg text-slate-700">{i + 1}. {it.q} <span className="text-xs text-slate-400">[{it.d}]</span></p>
           </div>
-          <div className="flex gap-2">
-            {[1, 2, 3, 4, 5].map((v) => (
-              <button key={v} onClick={() => setAns({ ...ans, [i]: v })} className={`flex-1 h-10 rounded-lg font-bold ${ans[i] === v ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-500"}`}>{v}</button>
+          <div className="flex gap-1.5 flex-wrap">
+            {QOL_SCALE.map((opt) => (
+              <button
+                key={opt.v}
+                onClick={() => setAns({ ...ans, [i]: opt.v })}
+                className={`flex-1 min-w-[80px] h-12 px-2 rounded-lg font-semibold text-sm leading-tight ${ans[i] === opt.v ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-600 hover:border-teal-500"}`}
+                aria-label={opt.label}
+              >{opt.label}</button>
             ))}
           </div>
         </div>

@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
+
 /**
- * voicelab 평가 모듈 — 이름대기 그림카드 (자체 SVG 일러스트)
+ * voicelab 평가 모듈 — 이름대기 그림카드 (사진 우선, 자체 SVG fallback)
  *
  * 15개 카드 = HANDOFF.md TODO 7 처리. Wikimedia/Pixabay 가 아니라 우리가 직접 그린
  * SVG 라 라이선스 100% 자체. 외부 자산 없음 — 의존성 0, 다크모드/고대비도 currentColor
@@ -252,12 +254,72 @@ const ART_MAP = {
   "가위": Scissors,
 };
 
+// 사진 파일 슬러그 — 사진을 받을 때 영문 파일명으로 통일 (저작권 추적 + Vercel 호환).
+// public/eval/naming/{slug}.{ext} 형식으로 두면 자동 우선 노출.
+const PHOTO_SLUG = {
+  "사과": "apple",
+  "시계": "clock",
+  "우산": "umbrella",
+  "안경": "glasses",
+  "가방": "bag",
+  "주전자": "kettle",
+  "빗자루": "broom",
+  "돋보기": "magnifier",
+  "다리미": "iron",
+  "자전거": "bicycle",
+  "코끼리": "elephant",
+  "절구": "mortar",
+  "호미": "hoe",
+  "부채": "fan",
+  "가위": "scissors",
+};
+// 시도할 확장자 순서. 일반적으로 webp > jpg > png 순으로 가벼움. 첫 번째가 실패하면 다음으로.
+const PHOTO_EXTS = ["webp", "jpg", "jpeg", "png"];
+
+function photoCandidates(item) {
+  const slug = PHOTO_SLUG[item];
+  if (!slug) return [];
+  return PHOTO_EXTS.map((ext) => `/eval/naming/${slug}.${ext}`);
+}
+
 /**
- * 카드 1개를 정사각 박스에 그린다.
- * `size` 픽셀 단위 (기본 96). 어르신에게 보여줄 때는 size=420 정도.
+ * 카드 1개. 우선순위:
+ *   1) public/eval/naming/{slug}.{ext} 사진이 있으면 그것
+ *   2) 없으면 자체 SVG fallback
+ *   3) SVG 도 없으면 ‘?’ 자리표
+ *
  * 한글 라벨은 절대 같이 그리지 않는다 — 검사 무효화 방지.
  */
 export function NamingCard({ item, size = 96, className = "" }) {
+  const candidates = photoCandidates(item);
+  const [tryIdx, setTryIdx] = useState(0);
+  const [photoFailed, setPhotoFailed] = useState(candidates.length === 0);
+
+  // item 바뀌면 다시 사진부터 시도
+  useEffect(() => {
+    setTryIdx(0);
+    setPhotoFailed(candidates.length === 0);
+  }, [item]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!photoFailed && candidates[tryIdx]) {
+    return (
+      <img
+        src={candidates[tryIdx]}
+        width={size}
+        height={size}
+        alt={item}
+        loading="lazy"
+        decoding="async"
+        className={`object-contain bg-white rounded-md ${className}`}
+        style={{ width: size, height: size }}
+        onError={() => {
+          if (tryIdx + 1 < candidates.length) setTryIdx(tryIdx + 1);
+          else setPhotoFailed(true);
+        }}
+      />
+    );
+  }
+
   const Cmp = ART_MAP[item];
   if (!Cmp) {
     return (
