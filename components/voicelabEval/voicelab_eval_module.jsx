@@ -9,6 +9,7 @@ import {
   fontScaleMultiplier, fontScaleLabel, nextFontScale,
   speak, stopSpeaking,
 } from "./evalA11y";
+import { NamingCard, NAMING_ITEMS } from "./namingCards";
 
 /*
  voicelab 허브 · 지산학 사업 평가 모듈
@@ -81,7 +82,7 @@ const HelpToggle = ({ title = "검사자 채점 기준", children }) => {
 // MODULE 1A. 인지 — 지남력 + 단어 외우기(등록)   [이름대기 전에 시행]
 // MODULE 1B. 인지 — 지연회상 + 재인              [이름대기 후에 시행]
 //  임상 표준 순서: 등록 → 간섭과제(이름대기) → 지연회상.
-//  · 지남력(시간5 + 장소5)  · 즉시기억(3단어 ×3시행, 사람채점)
+//  · 지남력(시간5 + 장소5)  · 즉시기억(3단어 ×1시행, 사람채점) — 변화추적 목적이라 단순화
 //  · 지연회상(3단어, 사람채점)  · 재인(보기 4지선다, 자동채점)
 // =================================================================
 const ORI_TIME = ["연도", "계절", "월", "날짜(일)", "요일"];
@@ -104,10 +105,10 @@ const CogRow = ({ label, k, obj, set }) => (
 function ModCogReg({ onDone }) {
   const [phase, setPhase] = useState("orient"); // orient → register
   const [ori, setOri] = useState({});
-  const [reg, setReg] = useState({ t1: {}, t2: {}, t3: {} });
+  const [reg, setReg] = useState({});
   const oriScore = Object.values(ori).filter((x) => x === 1).length;
-  const regTrials = ["t1", "t2", "t3"].map((t) => MEM_WORDS.filter((_, i) => reg[t]["w" + i] === 1).length);
-  const regBest = Math.max(...regTrials);
+  // 즉시기억: 1회 시행, 3단어 중 따라 말한 수. 변화추적 목적이라 임상 표준 3회 시행에서 단순화.
+  const regScore = MEM_WORDS.filter((_, i) => reg["w" + i] === 1).length;
 
   if (phase === "orient") {
     return (
@@ -130,32 +131,30 @@ function ModCogReg({ onDone }) {
     <div className="space-y-4">
       <div className="bg-amber-50 rounded-xl p-4">
         <p className="font-semibold text-amber-900 mb-1">즉시기억 (등록)</p>
-        <p className="text-slate-600">아래 세 단어를 또렷이 불러 주고 따라 말하게 하세요. 외울 때까지 최대 3회 반복하고, 시행별로 맞힌 단어를 표시합니다. <b className="text-amber-900">조금 뒤에 다시 여쭤볼 거라고 미리 알려 주세요.</b></p>
+        <p className="text-slate-600">아래 세 단어를 또렷이 한 번 불러 주고 따라 말하게 하세요. 따라 말한 단어만 표시합니다. <b className="text-amber-900">조금 뒤에 다시 여쭤볼 거라고 미리 알려 주세요.</b></p>
         <div className="flex items-center justify-center gap-3 my-3">
           <p className="text-2xl font-bold text-teal-800">{MEM_WORDS.join("  ·  ")}</p>
           <SpeakBtn text={MEM_WORDS.join(", ")} />
         </div>
       </div>
-      {["t1", "t2", "t3"].map((t, ti) => (
-        <div key={t} className="bg-slate-50 rounded-xl p-3">
-          <p className="font-semibold text-slate-600 mb-1">{ti + 1}차 시행</p>
-          <div className="flex gap-2">
-            {MEM_WORDS.map((w, i) => (
-              <button key={i} onClick={() => setReg({ ...reg, [t]: { ...reg[t], ["w" + i]: reg[t]["w" + i] === 1 ? 0 : 1 } })}
-                className={`flex-1 h-11 rounded-lg font-bold ${reg[t]["w" + i] === 1 ? "bg-emerald-600 text-white" : "bg-white border border-slate-200 text-slate-400"}`}>{w}</button>
-            ))}
-          </div>
+      <div className="bg-slate-50 rounded-xl p-3">
+        <p className="font-semibold text-slate-600 mb-1">따라 말한 단어</p>
+        <div className="flex gap-2">
+          {MEM_WORDS.map((w, i) => (
+            <button key={i} onClick={() => setReg({ ...reg, ["w" + i]: reg["w" + i] === 1 ? 0 : 1 })}
+              className={`flex-1 h-11 rounded-lg font-bold ${reg["w" + i] === 1 ? "bg-emerald-600 text-white" : "bg-white border border-slate-200 text-slate-400"}`}>{w}</button>
+          ))}
         </div>
-      ))}
+      </div>
       <div className="bg-teal-50 border border-teal-200 rounded-xl p-3 text-teal-800">
         <p className="font-semibold">다음은 이름대기 과제입니다.</p>
-        <p className="text-sm">이름대기가 간섭과제(시간 지연) 역할을 합니다. 이름대기를 마치면 ‘인지 — 지연회상·재인’ 단계에서 방금 외운 단어를 다시 여쭤봅니다.</p>
+        <p className="text-sm">이름대기가 간섭과제(시간 지연) 역할을 합니다. 이름대기를 마치면 ‘인지 — 지연회상·재인’ 단계에서 방금 외운 단어를 단서 없이 다시 말씀하시는지(지연회상) 확인합니다.</p>
       </div>
       <div className="flex items-center justify-between">
-        <span className="text-lg font-semibold">즉시기억 최고 {regBest}/3</span>
+        <span className="text-lg font-semibold">즉시기억 {regScore}/3</span>
         <Btn onClick={() => onDone({
-          score: oriScore + regBest, max: 13,
-          detail: { 지남력: `${oriScore}/10`, 즉시기억: `${regBest}/3` },
+          score: oriScore + regScore, max: 13,
+          detail: { 지남력: `${oriScore}/10`, 즉시기억: `${regScore}/3` },
           flags: [],
         })}>다음: 이름대기 →</Btn>
       </div>
@@ -218,26 +217,46 @@ function ModCogRecall({ onDone }) {
 // =================================================================
 // MODULE 2. 이름대기 (대면이름대기 · 자체 제작)
 // =================================================================
-const NAMING = ["사과", "시계", "우산", "안경", "가방", "주전자", "빗자루", "돋보기", "다리미", "자전거", "코끼리", "절구", "호미", "부채", "가위"];
+const NAMING = NAMING_ITEMS;
 function ModNaming({ onDone }) {
   const [res, setRes] = useState({});
+  const [showIdx, setShowIdx] = useState(null); // 풀스크린으로 보여줄 카드 인덱스
   const set = (i, v) => setRes({ ...res, [i]: v });
   const O = Object.values(res).filter((x) => x === "O").length;
   const C = Object.values(res).filter((x) => x === "C").length;
   return (
     <div className="space-y-4">
-      <p className="text-slate-500">그림카드를 보여 주고 명명 결과를 표시하세요. (O 정반응 / C 단서 후 정반응 / X 오반응)</p>
+      <p className="text-slate-500">행마다 ‘보여드리기’ 를 눌러 큰 그림을 어르신께 보여 주고 명명 결과를 표시하세요. (O 정반응 / C 단서 후 정반응 / X 오반응)</p>
       <HelpToggle title="이름대기 채점 기준 (O / C / X)">
         <p><b className="text-emerald-700">O · 정반응</b>: 단서 없이 5초 이내 정확한 명명. 음운 오류가 사소하고 의도가 명확하면 O.</p>
         <p><b className="text-amber-700">C · 단서 후 정반응</b>: 단서 위계(① 5–10초 기다림 → ② 의미단서 “과일이에요” → ③ 음소단서 첫소리 “/사/”) 중 어느 단계든 거친 뒤 정반응. 점수에는 들어가지 않지만 ‘단서후’로 카운트해 단서 의존도를 본다.</p>
         <p><b className="text-rose-600">X · 오반응</b>: 단서를 모두 줘도 오반응/무반응, 혹은 의미 변질된 응답(예: 사과 → "열매"는 너무 일반적이면 X).</p>
-        <p className="text-slate-500">※ 보기/객관식으로 답을 주지 않는다. 대신 답해주지 않는다.</p>
+        <p className="text-slate-500">※ 보기/객관식으로 답을 주지 않는다. 대신 답해주지 않는다. 풀스크린 카드에는 한글 라벨이 의도적으로 빠져 있다(검사 무효화 방지).</p>
       </HelpToggle>
       <div className="grid gap-2">
         {NAMING.map((w, i) => (
-          <div key={i} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2">
-            <span className="text-lg font-semibold text-slate-700">{i + 1}. {w}</span>
-            <div className="flex gap-1.5">
+          <div key={i} className="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2 gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-slate-400 w-6 text-right">{i + 1}.</span>
+              <button
+                type="button"
+                onClick={() => setShowIdx(i)}
+                className="shrink-0 bg-white border border-slate-200 rounded-lg p-1 hover:border-teal-500 active:scale-95"
+                title={`${w} — 큰 그림으로 보여드리기`}
+                aria-label={`${w} 그림을 어르신께 보여드리기`}
+              >
+                <NamingCard item={w} size={56} />
+              </button>
+              <div className="flex flex-col">
+                <span className="text-lg font-semibold text-slate-700 truncate">{w}</span>
+                <button
+                  type="button"
+                  onClick={() => setShowIdx(i)}
+                  className="text-xs text-teal-700 font-semibold hover:underline text-left"
+                >보여드리기 ↗</button>
+              </div>
+            </div>
+            <div className="flex gap-1.5 shrink-0">
               {["O", "C", "X"].map((v) => (
                 <button key={v} onClick={() => set(i, v)}
                   className={`w-11 h-10 rounded-lg font-bold ${res[i] === v ? (v === "O" ? "bg-emerald-600 text-white" : v === "C" ? "bg-amber-500 text-white" : "bg-rose-500 text-white") : "bg-white border border-slate-200 text-slate-400"}`}>{v}</button>
@@ -250,6 +269,70 @@ function ModNaming({ onDone }) {
         <span className="text-lg font-semibold">정반응 {O}/15 (단서후 {C})</span>
         <Btn onClick={() => onDone({ score: O, max: 15, detail: { 정반응: `${O}/15`, 단서후정반응: C }, flags: [] })}>다음</Btn>
       </div>
+      {showIdx !== null && (
+        <NamingShowcase
+          item={NAMING[showIdx]}
+          idx={showIdx}
+          total={NAMING.length}
+          onClose={() => setShowIdx(null)}
+          onPrev={showIdx > 0 ? () => setShowIdx(showIdx - 1) : null}
+          onNext={showIdx < NAMING.length - 1 ? () => setShowIdx(showIdx + 1) : null}
+        />
+      )}
+    </div>
+  );
+}
+
+// 풀스크린 카드 — 어르신께 한 장만 보이게. 한글 라벨/번호/UI 최소화.
+// 검사자만 보는 닫기/이전/다음 버튼은 작게 우상단·좌우에 둠.
+function NamingShowcase({ item, idx, total, onClose, onPrev, onNext }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowLeft" && onPrev) onPrev();
+      else if (e.key === "ArrowRight" && onNext) onNext();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, onPrev, onNext]);
+
+  return (
+    <div
+      role="dialog"
+      aria-label="이름대기 그림"
+      className="fixed inset-0 z-50 bg-white flex items-center justify-center"
+      onClick={onClose}
+    >
+      <div onClick={(e) => e.stopPropagation()} className="text-slate-800">
+        <NamingCard item={item} size={Math.min(typeof window !== "undefined" ? window.innerHeight * 0.7 : 480, 560)} />
+      </div>
+      {/* 검사자용 우상단 정보 + 닫기 */}
+      <div className="absolute top-3 right-3 flex items-center gap-2 text-slate-500" onClick={(e) => e.stopPropagation()}>
+        <span className="text-xs">{idx + 1} / {total}</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-semibold"
+          aria-label="닫기"
+        >닫기 ✕</button>
+      </div>
+      {/* 좌우 네비 — 검사자가 화면 옆을 길게 잡고 누르기 쉽게 */}
+      {onPrev && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onPrev(); }}
+          className="absolute left-2 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-2xl"
+          aria-label="이전 그림"
+        >‹</button>
+      )}
+      {onNext && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onNext(); }}
+          className="absolute right-2 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-2xl"
+          aria-label="다음 그림"
+        >›</button>
+      )}
     </div>
   );
 }
@@ -478,6 +561,14 @@ const QOL = [
   { q: "우울·불안 같은 부정적 기분을 자주 느끼십니까?", d: "심리", r: true },
 ];
 const DOMAINS = ["신체", "심리", "사회", "환경"];
+// 5점 척도 — 화면에는 라벨만 보이되 채점값(v)은 1~5 그대로 유지(영역점수 0~100 공식 동일).
+const QOL_SCALE = [
+  { v: 1, label: "전혀 아니다" },
+  { v: 2, label: "아니다" },
+  { v: 3, label: "보통이다" },
+  { v: 4, label: "그렇다" },
+  { v: 5, label: "매우 그렇다" },
+];
 function ModQOL({ onDone }) {
   const [ans, setAns] = useState({});
   const done = Object.keys(ans).length === 26;
@@ -490,7 +581,7 @@ function ModQOL({ onDone }) {
   };
   return (
     <div className="space-y-3">
-      <p className="text-slate-500">1(전혀 아니다) ~ 5(매우 그렇다)로 답하게 하세요. 영역점수가 높을수록 삶의 질이 좋음(진단 절단점 없음, 변화 추적용).</p>
+      <p className="text-slate-500">‘전혀 아니다 ~ 매우 그렇다’ 다섯 단계로 답하게 하세요. 영역점수가 높을수록 삶의 질이 좋음(진단 절단점 없음, 변화 추적용).</p>
       <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">※ WHO 허가 승인 후 who.int 공식 한국어판 26문항·출처표기로 교체하세요(채점 동일).</p>
       {QOL.map((it, i) => (
         <div key={i} className="bg-slate-50 rounded-xl px-4 py-3">
@@ -498,9 +589,14 @@ function ModQOL({ onDone }) {
             <SpeakBtn text={`${i + 1}번. ${it.q}`} />
             <p className="text-lg text-slate-700">{i + 1}. {it.q} <span className="text-xs text-slate-400">[{it.d}]</span></p>
           </div>
-          <div className="flex gap-2">
-            {[1, 2, 3, 4, 5].map((v) => (
-              <button key={v} onClick={() => setAns({ ...ans, [i]: v })} className={`flex-1 h-10 rounded-lg font-bold ${ans[i] === v ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-500"}`}>{v}</button>
+          <div className="flex gap-1.5 flex-wrap">
+            {QOL_SCALE.map((opt) => (
+              <button
+                key={opt.v}
+                onClick={() => setAns({ ...ans, [i]: opt.v })}
+                className={`flex-1 min-w-[80px] h-12 px-2 rounded-lg font-semibold text-sm leading-tight ${ans[i] === opt.v ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-600 hover:border-teal-500"}`}
+                aria-label={opt.label}
+              >{opt.label}</button>
             ))}
           </div>
         </div>
