@@ -9,6 +9,7 @@ import {
   fontScaleMultiplier, fontScaleLabel, nextFontScale,
   speak, stopSpeaking,
 } from "./evalA11y";
+import { NamingCard, NAMING_ITEMS } from "./namingCards";
 
 /*
  voicelab 허브 · 지산학 사업 평가 모듈
@@ -218,26 +219,46 @@ function ModCogRecall({ onDone }) {
 // =================================================================
 // MODULE 2. 이름대기 (대면이름대기 · 자체 제작)
 // =================================================================
-const NAMING = ["사과", "시계", "우산", "안경", "가방", "주전자", "빗자루", "돋보기", "다리미", "자전거", "코끼리", "절구", "호미", "부채", "가위"];
+const NAMING = NAMING_ITEMS;
 function ModNaming({ onDone }) {
   const [res, setRes] = useState({});
+  const [showIdx, setShowIdx] = useState(null); // 풀스크린으로 보여줄 카드 인덱스
   const set = (i, v) => setRes({ ...res, [i]: v });
   const O = Object.values(res).filter((x) => x === "O").length;
   const C = Object.values(res).filter((x) => x === "C").length;
   return (
     <div className="space-y-4">
-      <p className="text-slate-500">그림카드를 보여 주고 명명 결과를 표시하세요. (O 정반응 / C 단서 후 정반응 / X 오반응)</p>
+      <p className="text-slate-500">행마다 ‘보여드리기’ 를 눌러 큰 그림을 어르신께 보여 주고 명명 결과를 표시하세요. (O 정반응 / C 단서 후 정반응 / X 오반응)</p>
       <HelpToggle title="이름대기 채점 기준 (O / C / X)">
         <p><b className="text-emerald-700">O · 정반응</b>: 단서 없이 5초 이내 정확한 명명. 음운 오류가 사소하고 의도가 명확하면 O.</p>
         <p><b className="text-amber-700">C · 단서 후 정반응</b>: 단서 위계(① 5–10초 기다림 → ② 의미단서 “과일이에요” → ③ 음소단서 첫소리 “/사/”) 중 어느 단계든 거친 뒤 정반응. 점수에는 들어가지 않지만 ‘단서후’로 카운트해 단서 의존도를 본다.</p>
         <p><b className="text-rose-600">X · 오반응</b>: 단서를 모두 줘도 오반응/무반응, 혹은 의미 변질된 응답(예: 사과 → "열매"는 너무 일반적이면 X).</p>
-        <p className="text-slate-500">※ 보기/객관식으로 답을 주지 않는다. 대신 답해주지 않는다.</p>
+        <p className="text-slate-500">※ 보기/객관식으로 답을 주지 않는다. 대신 답해주지 않는다. 풀스크린 카드에는 한글 라벨이 의도적으로 빠져 있다(검사 무효화 방지).</p>
       </HelpToggle>
       <div className="grid gap-2">
         {NAMING.map((w, i) => (
-          <div key={i} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2">
-            <span className="text-lg font-semibold text-slate-700">{i + 1}. {w}</span>
-            <div className="flex gap-1.5">
+          <div key={i} className="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2 gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-slate-400 w-6 text-right">{i + 1}.</span>
+              <button
+                type="button"
+                onClick={() => setShowIdx(i)}
+                className="shrink-0 bg-white border border-slate-200 rounded-lg p-1 hover:border-teal-500 active:scale-95"
+                title={`${w} — 큰 그림으로 보여드리기`}
+                aria-label={`${w} 그림을 어르신께 보여드리기`}
+              >
+                <NamingCard item={w} size={56} />
+              </button>
+              <div className="flex flex-col">
+                <span className="text-lg font-semibold text-slate-700 truncate">{w}</span>
+                <button
+                  type="button"
+                  onClick={() => setShowIdx(i)}
+                  className="text-xs text-teal-700 font-semibold hover:underline text-left"
+                >보여드리기 ↗</button>
+              </div>
+            </div>
+            <div className="flex gap-1.5 shrink-0">
               {["O", "C", "X"].map((v) => (
                 <button key={v} onClick={() => set(i, v)}
                   className={`w-11 h-10 rounded-lg font-bold ${res[i] === v ? (v === "O" ? "bg-emerald-600 text-white" : v === "C" ? "bg-amber-500 text-white" : "bg-rose-500 text-white") : "bg-white border border-slate-200 text-slate-400"}`}>{v}</button>
@@ -250,6 +271,70 @@ function ModNaming({ onDone }) {
         <span className="text-lg font-semibold">정반응 {O}/15 (단서후 {C})</span>
         <Btn onClick={() => onDone({ score: O, max: 15, detail: { 정반응: `${O}/15`, 단서후정반응: C }, flags: [] })}>다음</Btn>
       </div>
+      {showIdx !== null && (
+        <NamingShowcase
+          item={NAMING[showIdx]}
+          idx={showIdx}
+          total={NAMING.length}
+          onClose={() => setShowIdx(null)}
+          onPrev={showIdx > 0 ? () => setShowIdx(showIdx - 1) : null}
+          onNext={showIdx < NAMING.length - 1 ? () => setShowIdx(showIdx + 1) : null}
+        />
+      )}
+    </div>
+  );
+}
+
+// 풀스크린 카드 — 어르신께 한 장만 보이게. 한글 라벨/번호/UI 최소화.
+// 검사자만 보는 닫기/이전/다음 버튼은 작게 우상단·좌우에 둠.
+function NamingShowcase({ item, idx, total, onClose, onPrev, onNext }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowLeft" && onPrev) onPrev();
+      else if (e.key === "ArrowRight" && onNext) onNext();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, onPrev, onNext]);
+
+  return (
+    <div
+      role="dialog"
+      aria-label="이름대기 그림"
+      className="fixed inset-0 z-50 bg-white flex items-center justify-center"
+      onClick={onClose}
+    >
+      <div onClick={(e) => e.stopPropagation()} className="text-slate-800">
+        <NamingCard item={item} size={Math.min(typeof window !== "undefined" ? window.innerHeight * 0.7 : 480, 560)} />
+      </div>
+      {/* 검사자용 우상단 정보 + 닫기 */}
+      <div className="absolute top-3 right-3 flex items-center gap-2 text-slate-500" onClick={(e) => e.stopPropagation()}>
+        <span className="text-xs">{idx + 1} / {total}</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-semibold"
+          aria-label="닫기"
+        >닫기 ✕</button>
+      </div>
+      {/* 좌우 네비 — 검사자가 화면 옆을 길게 잡고 누르기 쉽게 */}
+      {onPrev && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onPrev(); }}
+          className="absolute left-2 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-2xl"
+          aria-label="이전 그림"
+        >‹</button>
+      )}
+      {onNext && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onNext(); }}
+          className="absolute right-2 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-2xl"
+          aria-label="다음 그림"
+        >›</button>
+      )}
     </div>
   );
 }
