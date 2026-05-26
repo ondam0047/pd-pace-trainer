@@ -19,7 +19,9 @@ import { NamingCard, NAMING_ITEMS } from "./namingCards";
  - 인지(지남력·기억)·이름대기·유창성·숫자외우기·담화 → 자체 제작/공용 패러다임. 그대로 사용 가능.
    (K-MMSE는 유료, CIST는 전산평가 불가·배포금지 → 앱 미내장. 본 모듈은 '진단'이 아닌 '변화추적'.)
  - 우울(SGDS-K) → GDS 원판 공유저작물 + 대한치매학회 배포 한국판. 공식 배포본 문항·출처표기로 사용.
- - 삶의질(WHOQOL-BREF) → WHO 허가 승인 후, who.int 공식 한국어판 문항으로 교체하여 사용.
+ - 삶의질(WHOQOL-BREF) → WHO 허가(Request ID 202609140) 하에 who.int 공식 한국어판
+   Field Trial version (Aug 1996) 26문항 그대로 사용. 의무 표기·준수 규칙은
+   ./WHO_LICENSE.md 와 ModQOL 의 출처 박스 참고.
  - 사전/중간/사후 저장·비교 지원. 저장 백엔드는 ./evalStorage.ts 의 saveSession/listSessions 한 곳에서만
    교체하면 됨 (지금은 허브 localStorage, 정식 운영 시 hub API fetch 로 교체).
 */
@@ -512,46 +514,101 @@ function ModGDS({ onDone }) {
 }
 
 // =================================================================
-// MODULE 7. 삶의 질 — WHOQOL-BREF (26문항, 1~5)
-//  ※ WHO 허가 승인 후 who.int 공식 한국어판 문항으로 교체. 채점(영역 0~100)은 동일.
+// MODULE 7. 삶의 질 — WHOQOL-BREF (26문항, 5점 척도)
+//
+// 출처 (Source):
+//   한국판 WHO 삶의 질 척도 (단축형) · Korean Version of WHOQOL-BREF
+//   Field Trial version, August 1996.
+//   원작: World Health Organization (WHO), Geneva.
+//   URL: https://www.who.int/tools/whoqol/whoqol-bref
+//
+// WHO Licence (Request ID 202609140) · WHO Permissions Agreement 에 따라 본 제품에
+// 포함됨. 자세한 의무 표기 및 준수 규칙은 ./WHO_LICENSE.md 참고.
+//
+// 채점 (WHO syntax):
+//   - 역문항(r:true) 은 6 - 값 으로 변환 후 평균.
+//   - 영역점수(0–100) = ((mean × 4 - 4) / 16) × 100
+//   - 영역 배정: 신체/심리/사회/환경 — items 1·2 (전반) 은 영역 합산 제외.
+//
+// ⚠️ WHO Licence §6: 26문항·5점 척도 라벨·역문항을 임의로 변경하지 말 것.
 // =================================================================
-const QOL = [
-  { q: "전반적인 삶의 질에 만족하십니까?", d: "전반" },
-  { q: "전반적인 건강 상태에 만족하십니까?", d: "전반" },
-  { q: "통증 때문에 하고 싶은 일을 못 하십니까?", d: "신체", r: true },
-  { q: "치료(약)에 의존해야 일상이 가능합니까?", d: "신체", r: true },
-  { q: "삶을 즐기는 편이십니까?", d: "심리" },
-  { q: "삶이 의미 있다고 느끼십니까?", d: "심리" },
-  { q: "집중을 잘 하십니까?", d: "심리" },
-  { q: "일상생활이 안전하다고 느끼십니까?", d: "환경" },
-  { q: "주변 환경이 건강에 좋습니까?", d: "환경" },
-  { q: "일상생활을 할 기운(체력)이 있으십니까?", d: "신체" },
-  { q: "자신의 모습(외모 등)을 받아들이십니까?", d: "심리" },
-  { q: "필요한 돈(생활비)이 충분하십니까?", d: "환경" },
-  { q: "필요한 정보를 얻을 수 있으십니까?", d: "환경" },
-  { q: "여가 활동을 할 기회가 있으십니까?", d: "환경" },
-  { q: "잘 돌아다닐(이동) 수 있으십니까?", d: "신체" },
-  { q: "잠을 잘 주무십니까?", d: "신체" },
-  { q: "일상 활동을 잘 수행하십니까?", d: "신체" },
-  { q: "일할(활동할) 능력에 만족하십니까?", d: "신체" },
-  { q: "자기 자신에 만족하십니까?", d: "심리" },
-  { q: "주변 사람들과의 관계에 만족하십니까?", d: "사회" },
-  { q: "성생활/친밀감에 만족하십니까?", d: "사회" },
-  { q: "친구·이웃의 도움에 만족하십니까?", d: "사회" },
-  { q: "사는 곳(주거)에 만족하십니까?", d: "환경" },
-  { q: "의료·복지 서비스 이용이 편리합니까?", d: "환경" },
-  { q: "교통 이용이 편리합니까?", d: "환경" },
-  { q: "우울·불안 같은 부정적 기분을 자주 느끼십니까?", d: "심리", r: true },
-];
 const DOMAINS = ["신체", "심리", "사회", "환경"];
-// 5점 척도 — 화면에는 라벨만 보이되 채점값(v)은 1~5 그대로 유지(영역점수 0~100 공식 동일).
-const QOL_SCALE = [
-  { v: 1, label: "전혀 아니다" },
-  { v: 2, label: "아니다" },
-  { v: 3, label: "보통이다" },
-  { v: 4, label: "그렇다" },
-  { v: 5, label: "매우 그렇다" },
+
+// 척도 종류 5가지 — 문항별로 다름. 채점값(v)은 모두 1~5 동일.
+const QOL_SCALES = {
+  // 항목 1 (G1): 삶의 질 평가
+  quality: [
+    { v: 1, label: "매우 나쁨" },
+    { v: 2, label: "나쁨" },
+    { v: 3, label: "나쁘지도 좋지도 않음" },
+    { v: 4, label: "좋음" },
+    { v: 5, label: "매우 좋음" },
+  ],
+  // 항목 2, 16, 17, 19, 20, 21, 22, 23, 24, 25: 만족도
+  satisfaction: [
+    { v: 1, label: "매우 불만족" },
+    { v: 2, label: "불만족" },
+    { v: 3, label: "만족하지도 불만족하지도 않음" },
+    { v: 4, label: "만족" },
+    { v: 5, label: "매우 만족" },
+  ],
+  // 항목 3~9: 빈도/정도
+  frequency: [
+    { v: 1, label: "전혀 아니다" },
+    { v: 2, label: "약간 그렇다" },
+    { v: 3, label: "그렇다" },
+    { v: 4, label: "많이 그렇다" },
+    { v: 5, label: "매우 많이 그렇다" },
+  ],
+  // 항목 10~15, 18: 능력/충분도
+  capacity: [
+    { v: 1, label: "전혀 아니다" },
+    { v: 2, label: "약간 그렇다" },
+    { v: 3, label: "그렇다" },
+    { v: 4, label: "대부분 그렇다" },
+    { v: 5, label: "전적으로 그렇다" },
+  ],
+  // 항목 26: 부정 감정 빈도
+  negative: [
+    { v: 1, label: "전혀 아니다" },
+    { v: 2, label: "드물게 그렇다" },
+    { v: 3, label: "제법 그렇다" },
+    { v: 4, label: "매우 자주 그렇다" },
+    { v: 5, label: "항상 그렇다" },
+  ],
+};
+
+// 26문항 — 한국판 WHOQOL-BREF Field Trial version (Aug 1996) 본문 그대로.
+// code = WHO item code, d = 영역, s = 척도 키, r = 역문항.
+const QOL = [
+  { code: "G1",    q: "당신은 당신의 삶의 질을 어떻게 평가하겠습니까?", d: "전반", s: "quality" },
+  { code: "G4",    q: "당신은 당신의 건강상태에 대해 얼마나 만족하고 있습니까?", d: "전반", s: "satisfaction" },
+  { code: "F1.4",  q: "당신은 (신체적) 통증으로 인해 당신이 해야 할 일들을 어느 정도 방해받는다고 느낍니까?", d: "신체", s: "frequency", r: true },
+  { code: "F11.3", q: "당신은 일상생활을 잘 하기 위해 얼마나 치료가 필요합니까?", d: "신체", s: "frequency", r: true },
+  { code: "F4.1",  q: "당신은 인생을 얼마나 즐기십니까?", d: "심리", s: "frequency" },
+  { code: "F24.2", q: "당신은 당신의 삶이 어느 정도 의미있다고 느낍니까?", d: "심리", s: "frequency" },
+  { code: "F5.3",  q: "당신은 얼마나 잘 정신을 집중할 수 있습니까?", d: "심리", s: "frequency" },
+  { code: "F16.1", q: "당신은 일상생활에서 얼마나 안전하다고 느낍니까?", d: "환경", s: "frequency" },
+  { code: "F22.1", q: "당신은 얼마나 건강에 좋은 주거환경에 살고 있습니까?", d: "환경", s: "frequency" },
+  { code: "F2.1",  q: "당신은 일상생활을 위한 에너지를 충분히 가지고 있습니까?", d: "신체", s: "capacity" },
+  { code: "F7.1",  q: "당신의 신체적 외모에 만족합니까?", d: "심리", s: "capacity" },
+  { code: "F18.1", q: "당신은 당신의 필요를 만족시킬 수 있는 충분한 돈을 가지고 있습니까?", d: "환경", s: "capacity" },
+  { code: "F20.1", q: "당신은 매일 매일의 삶에서 당신이 필요로 하는 정보를 얼마나 쉽게 구할 수 있습니까?", d: "환경", s: "capacity" },
+  { code: "F21.1", q: "당신은 레저(여가)활동을 위한 기회를 어느 정도 가지고 있습니까?", d: "환경", s: "capacity" },
+  { code: "F9.1",  q: "당신은 얼마나 잘 돌아다닐 수 있습니까?", d: "신체", s: "capacity" },
+  { code: "F3.3",  q: "당신은 당신의 수면(잘 자는 것)에 대해 얼마나 만족하고 있습니까?", d: "신체", s: "satisfaction" },
+  { code: "F10.3", q: "당신은 일상생활의 활동을 수행하는 당신의 능력에 대해 얼마나 만족하고 있습니까?", d: "신체", s: "satisfaction" },
+  { code: "F12.4", q: "당신은 당신의 일할 수 있는 능력에 대해 얼마나 만족하고 있습니까?", d: "신체", s: "capacity" },
+  { code: "F6.3",  q: "당신은 당신 스스로에게 얼마나 만족하고 있습니까?", d: "심리", s: "satisfaction" },
+  { code: "F13.3", q: "당신은 당신의 개인적 대인관계에 대해 얼마나 만족하고 있습니까?", d: "사회", s: "satisfaction" },
+  { code: "F15.3", q: "당신은 당신의 성생활에 대해 얼마나 만족하고 있습니까?", d: "사회", s: "satisfaction" },
+  { code: "F14.4", q: "당신은 당신의 친구로부터 받고 있는 도움에 대해 얼마나 만족하고 있습니까?", d: "사회", s: "satisfaction" },
+  { code: "F17.3", q: "당신은 당신이 살고 있는 장소의 상태에 대해 얼마나 만족하고 있습니까?", d: "환경", s: "satisfaction" },
+  { code: "F19.3", q: "당신은 의료서비스를 쉽게 받을 수 있다는 점에 얼마나 만족하고 있습니까?", d: "환경", s: "satisfaction" },
+  { code: "F23.3", q: "당신은 당신이 사용하는 교통수단에 대해 얼마나 만족하고 있습니까?", d: "환경", s: "satisfaction" },
+  { code: "F8.1",  q: "당신은 침울한 기분, 절망, 불안, 우울감과 같은 부정적인 감정을 얼마나 자주 느낍니까?", d: "심리", s: "negative", r: true },
 ];
+
 function ModQOL({ onDone }) {
   const [ans, setAns] = useState({});
   const done = Object.keys(ans).length === 26;
@@ -564,23 +621,45 @@ function ModQOL({ onDone }) {
   };
   return (
     <div className="space-y-3">
-      <p className="text-slate-500">‘전혀 아니다 ~ 매우 그렇다’ 다섯 단계로 답하게 하세요. 영역점수가 높을수록 삶의 질이 좋음(진단 절단점 없음, 변화 추적용).</p>
-      <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">※ WHO 허가 승인 후 who.int 공식 한국어판 26문항·출처표기로 교체하세요(채점 동일).</p>
-      {QOL.map((it, i) => (
-        <div key={i} className="bg-slate-50 rounded-xl px-4 py-3">
-          <p className="text-lg text-slate-700 mb-2">{i + 1}. {it.q} <span className="text-xs text-slate-400">[{it.d}]</span></p>
-          <div className="flex gap-1.5 flex-wrap">
-            {QOL_SCALE.map((opt) => (
-              <button
-                key={opt.v}
-                onClick={() => setAns({ ...ans, [i]: opt.v })}
-                className={`flex-1 min-w-[80px] h-12 px-2 rounded-lg font-semibold text-sm leading-tight ${ans[i] === opt.v ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-600 hover:border-teal-500"}`}
-                aria-label={opt.label}
-              >{opt.label}</button>
-            ))}
+      <div className="bg-teal-50 border border-teal-200 rounded-xl p-4">
+        <p className="text-slate-700 leading-relaxed">
+          이 질문지는 당신의 삶의 질, 건강 및 인생의 여러 영역들에 대해 당신이 어떻게 느끼는지
+          묻는 것입니다. 빠뜨리는 문항 없이 모든 문항에 답변하십시오. 만일 질문에 대한 답변이
+          불확실할 경우, 가장 적절해 보이는 답변을 하나 고르십시오.
+        </p>
+        <p className="text-slate-700 leading-relaxed mt-2">
+          당신의 규범, 희망(바램), 기쁨, 관심을 마음속에 떠올려 보세요. 이 질문지는 당신이 최근
+          2주 동안(오늘을 포함해서)에 당신의 삶에 대해 어떻게 생각하는지를 묻는 것입니다.
+        </p>
+      </div>
+      <p className="text-slate-500">영역점수가 높을수록 삶의 질이 좋음(진단 절단점 없음, 변화 추적용).</p>
+      <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 leading-relaxed">
+        <b>WHOQOL-BREF · 한국판 (Field Trial version, August 1996)</b><br/>
+        Translated into Korean from <i>WHOQOL-BREF</i>, Geneva, World Health Organization (WHO),
+        1996 (<a className="underline" href="https://www.who.int/tools/whoqol/whoqol-bref" target="_blank" rel="noopener">who.int/tools/whoqol/whoqol-bref</a>).
+        WHO is not responsible for the content or accuracy of this translation. In the event of
+        any inconsistency between the English and the Korean translation, the original English
+        version shall be the binding and authentic version. WHO does not endorse any specific
+        companies, products or services. · Licence Request ID 202609140
+      </p>
+      {QOL.map((it, i) => {
+        const scale = QOL_SCALES[it.s];
+        return (
+          <div key={i} className="bg-slate-50 rounded-xl px-4 py-3">
+            <p className="text-lg text-slate-700 mb-2">{i + 1}. {it.q} <span className="text-xs text-slate-400">[{it.d}]</span></p>
+            <div className="flex gap-1.5 flex-wrap">
+              {scale.map((opt) => (
+                <button
+                  key={opt.v}
+                  onClick={() => setAns({ ...ans, [i]: opt.v })}
+                  className={`flex-1 min-w-[80px] h-12 px-2 rounded-lg font-semibold text-sm leading-tight ${ans[i] === opt.v ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-600 hover:border-teal-500"}`}
+                  aria-label={opt.label}
+                >{opt.label}</button>
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
       <div className="flex items-center justify-between">
         <span className="text-lg font-semibold">{DOMAINS.map((d) => `${d} ${domScore(d) ?? "-"}`).join(" · ")}</span>
         <Btn disabled={!done} onClick={() => {
@@ -834,7 +913,7 @@ function Shell({ children, sub }) {
           </div>
         </header>
         <div className="space-y-4">{children}</div>
-        <p className="text-center text-xs mt-8 text-slate-400">인지·언어 과제는 자체 제작. 우울(SGDS-K)·삶의질(WHOQOL-BREF)은 공식 문항/허가 적용 후 정식 운영하세요. 본 모듈은 변화 추적·기록 보조용이며 진단 도구가 아닙니다.</p>
+        <p className="text-center text-xs mt-8 text-slate-400">인지·언어 과제는 자체 제작. 우울(SGDS-K) 대한치매학회 배포본. 삶의 질(WHOQOL-BREF) WHO 허가 사용 (Request ID 202609140). 본 모듈은 변화 추적·기록 보조용이며 진단 도구가 아닙니다.</p>
       </div>
     </div>
   );

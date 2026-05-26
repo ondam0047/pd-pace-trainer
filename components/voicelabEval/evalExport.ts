@@ -250,8 +250,11 @@ export function downloadEvalReport(subjectId: string, sessions: EvalSession[]): 
   <div class="foot">
     본 보고서는 변화 추적·기록 보조용이며 진단 도구가 아닙니다. 위험 신호(우울 SGDS-K ≥ 8, 지연회상 현저 저하 등)는
     치매안심센터 등 외부 전문기관 연계 운영지침에 따라 처리하세요.<br/>
-    검사도구 라이선스: 인지·언어 과제는 자체 제작. SGDS-K — 조맹제 외(1999), 대한치매학회 배포본. WHOQOL-BREF — WHO 한국어판
-    (정식 운영 시 who.int 공식판 적용).<br/>
+    검사도구 라이선스: 인지·언어 과제는 자체 제작. SGDS-K — 조맹제 외(1999), 대한치매학회 배포본.
+    WHOQOL-BREF — Translated into Korean from WHOQOL-BREF, Geneva, World Health Organization (WHO),
+    1996 (https://www.who.int/tools/whoqol/whoqol-bref). WHO is not responsible for the content or
+    accuracy of this translation. WHO does not endorse any specific companies, products or services.
+    WHO Licence Request ID 202609140.<br/>
     생성: ${esc(now)} · voicelab 허브 · 대림대학교 언어치료학과
   </div>
 </body></html>`;
