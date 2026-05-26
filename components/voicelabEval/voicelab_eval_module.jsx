@@ -481,14 +481,68 @@ const GDS = [
   { q: "지금 자신의 처지가 절망적이라고 생각하십니까?", pos: false },                        // 14 (예=우울)
   { q: "자신의 처지가 다른 사람들에 비해 더 못하다고 생각하십니까?", pos: false },           // 15 (예=우울)
 ];
+// 페이지 네비게이션 바 — GDS·QOL 공용. 3문항씩 끊고 자동 넘김.
+const PageNav = ({ page, totalPages, maxPage, onPrev, onNext }) => (
+  <div className="flex items-center justify-between text-sm">
+    <span className="text-slate-500 font-semibold">{page + 1} / {totalPages} 페이지</span>
+    <div className="flex gap-2">
+      {page > 0 && (
+        <button
+          onClick={onPrev}
+          className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 font-semibold hover:border-teal-500"
+        >← 이전 페이지</button>
+      )}
+      {page < maxPage && (
+        <button
+          onClick={onNext}
+          className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 font-semibold hover:border-teal-500"
+        >다음 페이지 →</button>
+      )}
+    </div>
+  </div>
+);
+
+const PAGE_SIZE = 3;
+const AUTO_ADVANCE_MS = 450;
+
 function ModGDS({ onDone }) {
   const [ans, setAns] = useState({});
-  const done = Object.keys(ans).length === 15;
+  const [page, setPage] = useState(0);
+  const [maxPage, setMaxPage] = useState(0);
+  const totalPages = Math.ceil(GDS.length / PAGE_SIZE);
+  const startIdx = page * PAGE_SIZE;
+  const pageItems = GDS.slice(startIdx, startIdx + PAGE_SIZE);
+  const pageIndices = pageItems.map((_, idx) => startIdx + idx);
+  const pageAnswered = pageIndices.every((i) => ans[i] !== undefined);
+  const isLastPage = page === totalPages - 1;
+
   const score = GDS.reduce((s, it, i) => {
     if (ans[i] === undefined) return s;
     const depressive = it.pos ? ans[i] === "no" : ans[i] === "yes";
     return s + (depressive ? 1 : 0);
   }, 0);
+
+  // 현재 페이지 3문항 다 답하면 자동 넘김. 이전 페이지로 돌아가 수정할 때는 다시
+  // 자동 넘김이 안 걸리도록 page === maxPage 일 때만 발동.
+  useEffect(() => {
+    if (!pageAnswered || page !== maxPage) return;
+    const t = setTimeout(() => {
+      if (!isLastPage) {
+        setPage((p) => p + 1);
+        setMaxPage((p) => p + 1);
+      } else {
+        onDone({
+          score, max: 15,
+          detail: { 총점: `${score}/15` },
+          flags: score >= 8 ? ["우울 선별 양성(≥8) — 전문 상담/연계 권장"] : [],
+          lowerBetter: true,
+        });
+      }
+    }, AUTO_ADVANCE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageAnswered, page, maxPage]);
+
   return (
     <div className="space-y-3">
       <p className="text-slate-500">예/아니오로 답하게 하세요. (절단점 8점 이상 → 우울 가능성, 전문 상담/연계 권유)</p>
@@ -496,19 +550,31 @@ function ModGDS({ onDone }) {
         <b>SGDS-K</b> · 한국판 단축형 노인우울척도 (15문항). 출처: 조맹제 외(1999), 신경정신의학 38(1), 48–63;
         대한치매학회 평가도구 배포본. 원판: Sheikh &amp; Yesavage (1986) GDS-SF (공유저작물).
       </p>
-      {GDS.map((it, i) => (
-        <div key={i} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2">
-          <span className="text-lg text-slate-700 pr-3">{i + 1}. {it.q}</span>
-          <div className="flex gap-2 shrink-0">
-            <button onClick={() => setAns({ ...ans, [i]: "yes" })} className={`w-16 h-10 rounded-lg font-bold ${ans[i] === "yes" ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-500"}`}>예</button>
-            <button onClick={() => setAns({ ...ans, [i]: "no" })} className={`w-16 h-10 rounded-lg font-bold ${ans[i] === "no" ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-500"}`}>아니오</button>
+
+      <PageNav
+        page={page}
+        totalPages={totalPages}
+        maxPage={maxPage}
+        onPrev={() => setPage(page - 1)}
+        onNext={() => setPage(page + 1)}
+      />
+
+      {pageItems.map((it, idx) => {
+        const i = startIdx + idx;
+        return (
+          <div key={i} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3">
+            <span className="text-lg text-slate-700 pr-3">{i + 1}. {it.q}</span>
+            <div className="flex gap-2 shrink-0">
+              <button onClick={() => setAns({ ...ans, [i]: "yes" })} className={`w-16 h-10 rounded-lg font-bold ${ans[i] === "yes" ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-500"}`}>예</button>
+              <button onClick={() => setAns({ ...ans, [i]: "no" })} className={`w-16 h-10 rounded-lg font-bold ${ans[i] === "no" ? "bg-teal-700 text-white" : "bg-white border border-slate-200 text-slate-500"}`}>아니오</button>
+            </div>
           </div>
-        </div>
-      ))}
-      <div className="flex items-center justify-between">
-        <span className={`text-lg font-semibold ${score >= 8 ? "text-rose-600" : "text-slate-700"}`}>총점 {score}/15 {score >= 8 ? "· 우울 의심" : ""}</span>
-        <Btn disabled={!done} onClick={() => onDone({ score, max: 15, detail: { 총점: `${score}/15` }, flags: score >= 8 ? ["우울 선별 양성(≥8) — 전문 상담/연계 권장"] : [], lowerBetter: true })}>다음</Btn>
-      </div>
+        );
+      })}
+
+      <p className={`text-center text-sm font-semibold ${score >= 8 ? "text-rose-600" : "text-slate-500"}`}>
+        현재까지 총점 {score}/15 {score >= 8 ? "· 우울 의심" : ""}
+      </p>
     </div>
   );
 }
@@ -611,7 +677,15 @@ const QOL = [
 
 function ModQOL({ onDone }) {
   const [ans, setAns] = useState({});
-  const done = Object.keys(ans).length === 26;
+  const [page, setPage] = useState(0);
+  const [maxPage, setMaxPage] = useState(0);
+  const totalPages = Math.ceil(QOL.length / PAGE_SIZE);
+  const startIdx = page * PAGE_SIZE;
+  const pageItems = QOL.slice(startIdx, startIdx + PAGE_SIZE);
+  const pageIndices = pageItems.map((_, idx) => startIdx + idx);
+  const pageAnswered = pageIndices.every((i) => ans[i] !== undefined);
+  const isLastPage = page === totalPages - 1;
+
   const domScore = (dom) => {
     const items = QOL.map((it, i) => ({ it, i })).filter((x) => x.it.d === dom && ans[x.i] !== undefined);
     if (!items.length) return null;
@@ -619,30 +693,57 @@ function ModQOL({ onDone }) {
     const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
     return Math.round(((mean * 4 - 4) * (100 / 16)));
   };
+
+  // 3문항 다 답하면 자동 넘김. 이전 페이지 수정 모드에선 미발동.
+  useEffect(() => {
+    if (!pageAnswered || page !== maxPage) return;
+    const t = setTimeout(() => {
+      if (!isLastPage) {
+        setPage((p) => p + 1);
+        setMaxPage((p) => p + 1);
+      } else {
+        const detail = {}; DOMAINS.forEach((d) => detail[d] = domScore(d));
+        const overall = Math.round(DOMAINS.reduce((a, d) => a + (domScore(d) || 0), 0) / DOMAINS.length);
+        onDone({ score: overall, max: 100, detail, flags: [] });
+      }
+    }, AUTO_ADVANCE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageAnswered, page, maxPage]);
+
   return (
     <div className="space-y-3">
-      <div className="bg-teal-50 border border-teal-200 rounded-xl p-4">
-        <p className="text-slate-700 leading-relaxed">
-          이 질문지는 당신의 삶의 질, 건강 및 인생의 여러 영역들에 대해 당신이 어떻게 느끼는지
-          묻는 것입니다. 빠뜨리는 문항 없이 모든 문항에 답변하십시오. 만일 질문에 대한 답변이
-          불확실할 경우, 가장 적절해 보이는 답변을 하나 고르십시오.
-        </p>
-        <p className="text-slate-700 leading-relaxed mt-2">
-          당신의 규범, 희망(바램), 기쁨, 관심을 마음속에 떠올려 보세요. 이 질문지는 당신이 최근
-          2주 동안(오늘을 포함해서)에 당신의 삶에 대해 어떻게 생각하는지를 묻는 것입니다.
-        </p>
-      </div>
-      <p className="text-slate-500">영역점수가 높을수록 삶의 질이 좋음(진단 절단점 없음, 변화 추적용).</p>
+      {page === 0 && (
+        <div className="bg-teal-50 border border-teal-200 rounded-xl p-4">
+          <p className="text-slate-700 leading-relaxed">
+            이 질문지는 당신의 삶의 질, 건강 및 인생의 여러 영역들에 대해 당신이 어떻게 느끼는지
+            묻는 것입니다. 빠뜨리는 문항 없이 모든 문항에 답변하십시오. 만일 질문에 대한 답변이
+            불확실할 경우, 가장 적절해 보이는 답변을 하나 고르십시오.
+          </p>
+          <p className="text-slate-700 leading-relaxed mt-2">
+            당신의 규범, 희망(바램), 기쁨, 관심을 마음속에 떠올려 보세요. 이 질문지는 당신이 최근
+            2주 동안(오늘을 포함해서)에 당신의 삶에 대해 어떻게 생각하는지를 묻는 것입니다.
+          </p>
+        </div>
+      )}
       <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 leading-relaxed">
-        <b>WHOQOL-BREF · 한국판 (Field Trial version, August 1996)</b><br/>
-        Translated into Korean from <i>WHOQOL-BREF</i>, Geneva, World Health Organization (WHO),
-        1996 (<a className="underline" href="https://www.who.int/tools/whoqol/whoqol-bref" target="_blank" rel="noopener">who.int/tools/whoqol/whoqol-bref</a>).
-        WHO is not responsible for the content or accuracy of this translation. In the event of
-        any inconsistency between the English and the Korean translation, the original English
-        version shall be the binding and authentic version. WHO does not endorse any specific
-        companies, products or services. · Licence Request ID 202609140
+        <b>WHOQOL-BREF · 한국판 (Field Trial version, August 1996)</b> · Translated into Korean from
+        <i> WHOQOL-BREF</i>, Geneva, World Health Organization (WHO), 1996
+        (<a className="underline" href="https://www.who.int/tools/whoqol/whoqol-bref" target="_blank" rel="noopener">who.int/tools/whoqol/whoqol-bref</a>).
+        WHO is not responsible for the content or accuracy of this translation. WHO does not endorse
+        any specific companies, products or services. · Licence Request ID 202609140
       </p>
-      {QOL.map((it, i) => {
+
+      <PageNav
+        page={page}
+        totalPages={totalPages}
+        maxPage={maxPage}
+        onPrev={() => setPage(page - 1)}
+        onNext={() => setPage(page + 1)}
+      />
+
+      {pageItems.map((it, idx) => {
+        const i = startIdx + idx;
         const scale = QOL_SCALES[it.s];
         return (
           <div key={i} className="bg-slate-50 rounded-xl px-4 py-3">
@@ -660,14 +761,10 @@ function ModQOL({ onDone }) {
           </div>
         );
       })}
-      <div className="flex items-center justify-between">
-        <span className="text-lg font-semibold">{DOMAINS.map((d) => `${d} ${domScore(d) ?? "-"}`).join(" · ")}</span>
-        <Btn disabled={!done} onClick={() => {
-          const detail = {}; DOMAINS.forEach((d) => detail[d] = domScore(d));
-          const overall = Math.round(DOMAINS.reduce((a, d) => a + (domScore(d) || 0), 0) / DOMAINS.length);
-          onDone({ score: overall, max: 100, detail, flags: [] });
-        }}>완료</Btn>
-      </div>
+
+      <p className="text-center text-sm font-semibold text-slate-500">
+        현재까지 영역점수 — {DOMAINS.map((d) => `${d} ${domScore(d) ?? "-"}`).join(" · ")}
+      </p>
     </div>
   );
 }
