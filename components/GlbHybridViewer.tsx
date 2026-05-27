@@ -11,10 +11,20 @@ import {
 } from "@react-three/drei";
 import * as THREE from "three";
 
-const MODEL_URL = "/models/head-sagittal.glb";
+const MODEL_URL = "/models/head-combined.glb";
 
-/* Static realistic shell */
-function Shell({ metalness }: { metalness: number }) {
+/* Static realistic shell — combined model with head + tongue + lips */
+function Shell({
+  metalness,
+  showHead,
+  showTongue,
+  showLips,
+}: {
+  metalness: number;
+  showHead: boolean;
+  showTongue: boolean;
+  showLips: boolean;
+}) {
   const { scene } = useGLTF(MODEL_URL);
   useEffect(() => {
     scene.traverse((o) => {
@@ -30,6 +40,17 @@ function Shell({ metalness }: { metalness: number }) {
       }
     });
   }, [scene, metalness]);
+  useEffect(() => {
+    const map: Record<string, boolean> = {
+      head: showHead,
+      tongue: showTongue,
+      lips: showLips,
+    };
+    for (const [name, vis] of Object.entries(map)) {
+      const node = scene.getObjectByName(name);
+      if (node) node.visible = vis;
+    }
+  }, [scene, showHead, showTongue, showLips]);
   return <primitive object={scene} />;
 }
 
@@ -184,7 +205,7 @@ export default function GlbHybridViewer() {
     az: 0,
     scale: 1,
     metalness: 0,
-    visible: true,
+    visible: false,
     playing: false,
     rate: 2,
   });
@@ -196,6 +217,9 @@ export default function GlbHybridViewer() {
   const c = ctrl.current;
   const [showAlign, setShowAlign] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
+  const [showHead, setShowHead] = useState(true);
+  const [showTongue, setShowTongue] = useState(true);
+  const [showLips, setShowLips] = useState(true);
 
   return (
     <div className="flex h-full min-h-[640px] w-full flex-col gap-3 lg:flex-row">
@@ -219,7 +243,12 @@ export default function GlbHybridViewer() {
 
           <Suspense fallback={null}>
             <Bounds fit clip observe margin={1.15}>
-              <Shell metalness={c.metalness} />
+              <Shell
+                metalness={c.metalness}
+                showHead={showHead}
+                showTongue={showTongue}
+                showLips={showLips}
+              />
               <Articulators ctrl={ctrl} />
             </Bounds>
           </Suspense>
@@ -247,11 +276,32 @@ export default function GlbHybridViewer() {
 
       <div className="flex w-full max-w-md flex-col gap-3 rounded-2xl bg-white p-4 shadow-sm lg:w-80">
         <div>
-          <h3 className="text-base font-semibold text-slate-900">하이브리드 (실사 + 가동부)</h3>
+          <h3 className="text-base font-semibold text-slate-900">실사 통합 모델 (GLB)</h3>
           <p className="mt-1 text-xs text-slate-500">
-            실사 GLB(고정) 위에 움직이는 조음부(연구개·혀끝·혀몸·위·아래
-            입술)를 올렸습니다. 먼저 정렬로 위치를 맞춘 뒤 움직여 보세요.
+            사지철 머리 + 풀 3D 혀 + 풀 3D 입술이 결합된 통합 모델. 리거에게
+            발주 예정인 데이터. 리깅 후 자음 자세 표현 가능.
           </p>
+        </div>
+
+        <div className="rounded-lg bg-slate-50 p-3">
+          <div className="mb-2 text-xs font-medium text-slate-700">부위 표시</div>
+          <div className="flex flex-col gap-1.5 text-xs text-slate-700">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={showHead} onChange={(e) => setShowHead(e.target.checked)} />
+              <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#bbb" }} />
+              사지철 머리 (head)
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={showTongue} onChange={(e) => setShowTongue(e.target.checked)} />
+              <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#d56363" }} />
+              혀 (tongue)
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={showLips} onChange={(e) => setShowLips(e.target.checked)} />
+              <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#d68a64" }} />
+              입술 (lips)
+            </label>
+          </div>
         </div>
 
         <button

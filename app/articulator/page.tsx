@@ -52,14 +52,14 @@ export default function ArticulatorPage() {
                 : "bg-white text-slate-700 ring-1 ring-slate-200")
             }
           >
-            실사 + 가동부 (하이브리드)
+            실사 통합 모델 (GLB)
           </button>
         </div>
 
         <p className="text-xs text-slate-500 sm:text-sm">
           {mode === "procedural"
             ? "입술·혀·경구개·연구개가 자음에 맞춰 반복 조음하고 공기가 흐릅니다. 마우스로 회전, 휠로 줌."
-            : "실사 GLB(고정) + 움직이는 조음부(연구개·혀끝·혀몸·입술). 정렬 후 슬라이더/재생으로 조음."}
+            : "사지철 머리 + 풀 3D 혀 + 풀 3D 입술 통합 모델. 리거 발주용 데이터 미리보기. 부위별 표시 토글 가능."}
         </p>
 
         {mode === "procedural" ? <ArticulatorViewer /> : <GlbHybridViewer />}
