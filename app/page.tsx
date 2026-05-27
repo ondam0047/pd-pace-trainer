@@ -42,7 +42,8 @@ type Module = { href: string; title: string; subtitle: string; description: stri
 
 const MODULES: Module[] = [
   { href: "/pitch", title: "실시간 피치·강도", subtitle: "F0 + dB Tracking", description: "F0·음역 + 강도 바이오피드백(LSVT LOUD) 통합 시계열 분석", color: "blue", status: "ready" },
-  { href: "/vocal-tract", title: "모음·자음 시각화", subtitle: "Vocal Tract", description: "마찰음 변별 훈련 (/s/·/ʃ/·/ɕ/ 스펙트럼 중심) · 3D 조음 준비중", color: "blue", status: "ready" },
+  { href: "/vocal-tract", title: "모음·자음 시각화", subtitle: "Vocal Tract", description: "마찰음 변별 훈련 (/s/·/ʃ/·/ɕ/ 스펙트럼 중심)", color: "blue", status: "ready" },
+  { href: "/articulator", title: "조음기관 3D", subtitle: "Articulator 3D", description: "사지철 단면 + 풀 3D 혀·입술 통합 + 자음 반복 조음 + 공기 흐름", color: "blue", status: "ready" },
   { href: "/voice-quality", title: "음질 분석", subtitle: "Voice Quality", description: "jitter · shimmer · HNR 자동 추출", color: "blue", status: "ready" },
   { href: "/vhi", title: "음성장애지수 (VHI)", subtitle: "Voice Handicap Index", description: "30문항 자기보고 → 기능·신체·정서 점수 + 보고서 다운로드", color: "blue", status: "ready" },
   { href: "/eval", title: "지산학 평가 모듈", subtitle: "Cog · Lang · Mood · QoL", description: "어르신 인지·언어·정서·삶의 질 사전/중간/사후 검사자 실시형 평가", color: "emerald", status: "ready" },
