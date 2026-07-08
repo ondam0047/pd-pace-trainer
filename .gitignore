@@ -14,3 +14,10 @@ yarn-error.log*
 pnpm-debug.log*
 .DS_Store
 *.tsbuildinfo
+
+# articulator rig — 로컬 백업/스크래치 (코드 참조 0, git 히스토리로 대체). 배포 GLB만 추적.
+/public/models/head-rigged-v1-backup.glb
+/public/models/head-rigged-v1-backup_head.png
+/public/models/head-rigged-v25-preRigDeliv.glb
+/public/models/head-rigged_head.png
+/public/_r/
