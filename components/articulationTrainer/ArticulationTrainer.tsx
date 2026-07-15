@@ -1,13 +1,15 @@
 "use client";
 
 // 음운변동 조음 훈련 (바로조음 Phase 2).
-// 치료사가 음운변동을 고르면 → 대립쌍 대조 + 오류→목표 3D 애니메이션 + (지속음) 실시간 음향 게이지.
+// 치료사가 음운변동을 고르면 → 대립쌍 대조 + 오류→목표 3D 애니메이션 + 음향 피드백.
 // 근거: 대립쌍(Baker 2022), 단순 시상면+애니메이션(DYNARTmo), KP fade·초점 전환(Maas 2008),
 //       centroid 목표대역 게이지(SibilantTrainer 재사용).
-// v1: 마찰음 파열음화(ㅅ↔ㄷ)를 실시간까지 완전 배선. 나머지 변동은 3D 애니메이션+대립쌍만(음향은 후속).
+// 음향은 조음방법에서 자동 분기(modeOf): 지속음(마찰 등)=실시간 centroid 게이지,
+// 순간음(파열·파찰)=캡처(녹음→재생 비교 + 파형, CaptureRecorder).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SagittalArticulator, { type SagittalMode } from "./SagittalArticulator";
+import CaptureRecorder from "./CaptureRecorder";
 import {
   PROCESSES,
   modeOf,
@@ -734,11 +736,7 @@ function PracticeScreen({
               </div>
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-500">
-              이 변동({process.short})은 <strong>순간음</strong>이라 실시간 게이지 대신 캡처·리뷰 방식이
-              적합합니다. 캡처 모드는 다음 버전에서 제공됩니다. 지금은 <strong>3D 애니메이션 + 대립쌍
-              대조</strong>로 훈련하세요.
-            </div>
+            <CaptureRecorder targetWord={pair.target} />
           )}
 
           <SaveToHistory
