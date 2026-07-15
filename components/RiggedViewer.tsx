@@ -6,6 +6,7 @@ import {
   Bounds,
   GizmoHelper,
   GizmoViewport,
+  Line,
   OrbitControls,
   useGLTF,
 } from "@react-three/drei";
@@ -16,15 +17,22 @@ import {
   VOWELS,
   LIP_OPACITY,
   VELUM_INVERTED,
+  VELUM_CLOSE,
+  VELUM_CLOSED_MIN,
   IDLE_POSE,
   mannerOf,
   fullPose,
   lerp,
   lerpPose,
   type Pose,
+  type Manner,
 } from "@/components/articulator/phonemeMap";
 
-const MODEL_URL = "/models/head-rigged.glb?v=25";
+const MODEL_URL = "/models/head-rigged.glb?v=36";
+
+// The lips mesh is split into upper/lower halves (lips_upper is drawn with depth
+// priority so it hides the lower lip's overlap at closure — "윗입술 우선").
+const isLipMesh = (n: string) => n === "lips_upper" || n === "lips_lower";
 
 const EXPECTED: Record<string, string[]> = {
   tongue: [
@@ -36,7 +44,8 @@ const EXPECTED: Record<string, string[]> = {
     "tongue_groove",
     "tongue_lateral_channel",
   ],
-  lips: ["lips_closed", "lips_round", "lips_spread", "lips_jaw_open"],
+  lips_upper: ["lips_closed", "lips_round", "lips_spread", "lips_jaw_open"],
+  lips_lower: ["lips_closed", "lips_round", "lips_spread", "lips_jaw_open"],
   head: ["jaw_open", "velum_open"],
 };
 
@@ -45,7 +54,9 @@ const ZERO = fullPose({});
 // ── articulatory gesture timeline ───────────────────────────────────────────
 // Each phoneme plays as a sequence of eased segments (onset → hold → release),
 // so motion is smooth and stops actually burst open.
-type Seg = { pose: Pose; op: number; dur: number };
+// ease?: 세그먼트 보간 곡선 선택. 기본은 smooth01(ease-in-out). "out"=ease-out
+// (빠르게 출발→목표에서 감속) — 파열 폐쇄처럼 혀가 "탁" 붙는 느낌에 사용.
+type Seg = { pose: Pose; op: number; dur: number; ease?: "out" };
 type Seq = {
   segs: Seg[];
   loop: boolean;
@@ -62,28 +73,45 @@ function consonantGesture(c: (typeof CONSONANTS)[number]): {
 } {
   const P = fullPose(c.pose);
   const op = c.opacity;
-  const idle: Seg = { pose: IDLE_POSE, op: LIP_OPACITY.idle, dur: 0.22 };
-  const burst = fullPose({ jaw_open: 0.14 }); // generic oral release
   switch (mannerOf(c.manner)) {
     case "stop":
+      // Close → brief occlusion → release → return to (slightly-open) rest. The
+      // closure phase forms the contact (ㅂ lips, ㄷ tip↔alveolar, ㄱ dorsum↔velum);
+      // then it opens back to rest — a stop is a transient, not a held posture.
+      if (c.id === "k") {
+        // ㄱㅋㄲ(연구개)만: 혀 뒤가 연구개까지 크게 올라오는 움직임이라 빠르면 뚝뚝 끊겨 보임.
+        // 다른 파열음은 그대로 두고 velar만 전환을 길게(≈2배) 잡아 천천히·부드럽게 상승/개방.
+        return {
+          segs: [
+            // ease-out: 혀가 빠르게 출발해 연구개 접촉에서 감속 → "탁" 붙되 팝 없이 연속.
+            { pose: P, op, dur: 0.16, ease: "out" }, // 또렷하게 상승해 연구개 폐쇄 형성
+            { pose: P, op, dur: 0.24 }, // 접촉 유지
+            { pose: fullPose({ jaw_open: 0.12 }), op, dur: 0.13 }, // 개방
+            { pose: IDLE_POSE, op: LIP_OPACITY.idle, dur: 0.28 }, // 휴지 복귀
+          ],
+          loop: false,
+        };
+      }
       return {
         segs: [
           { pose: P, op, dur: 0.16 }, // form closure
-          { pose: P, op, dur: 0.13 }, // occlusion (hold)
-          { pose: burst, op, dur: 0.09 }, // release burst
-          idle,
+          { pose: P, op, dur: 0.18 }, // occlusion (hold contact briefly)
+          { pose: fullPose({ jaw_open: 0.14 }), op, dur: 0.09 }, // release burst
+          { pose: IDLE_POSE, op: LIP_OPACITY.idle, dur: 0.22 }, // back to rest
         ],
         loop: false,
       };
     case "affricate": {
       // ㅈㅊㅉ 치경경구개 파찰: 폐쇄(혀 앞날 접촉) → 느린 개방(마찰)으로 끊김 없이 흐르게.
-      const fric = fullPose({ tongue_front_up: 0.55, tongue_groove: 1, jaw_open: 0.18 });
+      // 입은 벌리지 않고(턱 X) 휴지보다 살짝 다물린 채 마찰 — jaw_open 대신 lips_closed.
+      const fric = fullPose({ tongue_front_up: 0.55, tongue_groove: 1, lips_closed: 0.5 });
       return {
         segs: [
-          { pose: P, op, dur: 0.2 }, // 부드러운 폐쇄 접근
-          { pose: fric, op, dur: 0.24 }, // 느린 개방 → 마찰 (파찰음 핵심)
-          { pose: fric, op, dur: 0.16 }, // 짧은 마찰 지속
-          { pose: IDLE_POSE, op: LIP_OPACITY.idle, dur: 0.24 },
+          // 지연개방성(delayed release): 빠른 폐쇄 → 긴 접촉 유지 → 느린 마찰 개방
+          { pose: P, op, dur: 0.1 }, // ① 빠르게 상승해 접촉(혀 앞날이 재빨리 붙음)
+          { pose: P, op, dur: 0.4 }, // ② 접촉을 오래 유지(폐쇄 구간)
+          { pose: fric, op, dur: 0.55 }, // ③ 느린 마찰 개방 — 혀가 천천히 떨어짐
+          { pose: IDLE_POSE, op: LIP_OPACITY.idle, dur: 0.24 }, // ④ 휴지 복귀
         ],
         loop: false,
       };
@@ -102,13 +130,13 @@ function consonantGesture(c: (typeof CONSONANTS)[number]): {
       };
     }
     case "fricative":
+      // 마찰음(ㅅㅆ): 지속음 — 좁은 틈으로 기류가 계속 흐른다(loop). 다른 음소/휴지 전까지 지속.
       return {
         segs: [
-          { pose: P, op, dur: 0.2 },
-          { pose: P, op, dur: 0.55 }, // sustained frication
-          { pose: IDLE_POSE, op: LIP_OPACITY.idle, dur: 0.2 },
+          { pose: P, op, dur: 0.2 }, // 접근(협착 형성)
+          { pose: P, op, dur: 0.6 }, // 마찰 지속(반복)
         ],
-        loop: false,
+        loop: true,
       };
     case "tap":
       // 탄설: tip rises to the alveolar ridge, holds 0.5s, then lowers — once.
@@ -121,13 +149,14 @@ function consonantGesture(c: (typeof CONSONANTS)[number]): {
         loop: false,
       };
     case "lateral":
-      // 설측: same tip position as the tap + lateral channel, MAINTAINED (sustained).
+      // 설측: 지속음 — 혀끝 접촉 자세를 유지하고 기류가 계속 흐른다(loop=true).
+      // 다른 음소를 누르거나 휴지 전까지 자세·기류 지속.
       return {
         segs: [
-          { pose: P, op, dur: 0.2 },
-          { pose: P, op, dur: 0.45 }, // hold at target (no return to rest)
+          { pose: P, op, dur: 0.2 }, // 접촉으로 상승
+          { pose: P, op, dur: 0.6 }, // 유지(반복)
         ],
-        loop: false,
+        loop: true,
       };
     default: // glottal ㅎ
       return {
@@ -177,6 +206,317 @@ function smooth01(t: number) {
   return t * t * (3 - 2 * t);
 }
 
+// ease-out: 빠르게 출발해 목표에서 감속. 시작 기울기가 급해 "탁" 붙는 느낌(팝 없이 연속).
+function easeOut01(t: number) {
+  t = Math.min(1, Math.max(0, t));
+  return 1 - (1 - t) * (1 - t);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 기류(airflow) 시각화 — 성문→인두→(연구개 분기)→구강/비강 경로를 따라 흐르는 입자.
+// ⚠️ 경로 좌표는 glTF 시상면(XY평면, z≈0, +X=전방/입술) 기준 근사값 — 스크린샷으로 미세조정 예정.
+type AirState = {
+  on: boolean;
+  manner: Manner | "vowel";
+  id: string;
+  oralCurve: THREE.CatmullRomCurve3; // 공유 기본 구강 경로(음소별 경로 없을 때 폴백)
+  nasalCurve: THREE.CatmullRomCurve3;
+  constrictionById: Record<string, number>; // 음소별 협착점 u 오버라이드(있으면 constrictionU 대신 사용)
+  oralPathById: Record<string, THREE.CatmullRomCurve3>; // 음소별 구강 경로 오버라이드
+  diphFrom: THREE.CatmullRomCurve3 | null; // 이중모음: 시작 단모음 경로
+  diphTo: THREE.CatmullRomCurve3 | null; // 이중모음: 도착 단모음 경로 (from→to 보간)
+};
+
+// 성문(후두 하후방)에서 인두를 타고 올라와 연구개 포트에서 구강/비강으로 갈라진다.
+// 좌표 = 사용자가 3D 편집기(클릭 배치)로 빈 기도 공간을 직접 찍은 실측 경로(2026-07-14, z=0 시상면 레이캐스트).
+const ORAL_PATH: [number, number, number][] = [
+  [-0.279, -0.536, 0], [-0.252, -0.411, 0], [-0.237, -0.26, 0], [-0.235, -0.156, 0],
+  [-0.256, -0.12, 0], [-0.283, -0.068, 0], [-0.297, -0.021, 0], [-0.307, 0.025, 0],
+  [-0.306, 0.056, 0], [-0.284, 0.082, 0], [-0.262, 0.116, 0], [-0.247, 0.158, 0],
+  [-0.24, 0.198, 0], [-0.221, 0.225, 0], [-0.188, 0.242, 0], [-0.143, 0.246, 0],
+  [-0.093, 0.233, 0], [-0.04, 0.214, 0], [0.032, 0.197, 0], [0.077, 0.198, 0],
+  [0.133, 0.196, 0], [0.176, 0.187, 0], [0.221, 0.161, 0], [0.254, 0.146, 0],
+  [0.297, 0.145, 0], [0.344, 0.14, 0], [0.383, 0.133, 0], [0.437, 0.134, 0], [0.526, 0.132, 0],
+];
+const NASAL_PATH: [number, number, number][] = [
+  [-0.277, -0.518, 0], [-0.272, -0.436, 0], [-0.259, -0.366, 0], [-0.246, -0.269, 0],
+  [-0.242, -0.191, 0], [-0.252, -0.119, 0], [-0.298, -0.084, 0], [-0.307, -0.023, 0],
+  [-0.305, 0.032, 0], [-0.316, 0.079, 0], [-0.321, 0.132, 0], [-0.32, 0.18, 0],
+  [-0.318, 0.236, 0], [-0.316, 0.282, 0], [-0.29, 0.332, 0], [-0.254, 0.365, 0],
+  [-0.197, 0.387, 0], [-0.144, 0.399, 0], [-0.101, 0.399, 0], [-0.042, 0.403, 0],
+  [0.022, 0.411, 0], [0.109, 0.42, 0], [0.21, 0.424, 0], [0.284, 0.424, 0],
+  [0.362, 0.396, 0], [0.39, 0.368, 0], [0.403, 0.326, 0], [0.423, 0.302, 0],
+  [0.446, 0.279, 0], [0.475, 0.256, 0], [0.509, 0.245, 0],
+];
+const makeCurve = (pts: [number, number, number][]) =>
+  new THREE.CatmullRomCurve3(
+    pts.map((p) => new THREE.Vector3(p[0], p[1], p[2])),
+    false,
+    "catmullrom",
+    0.5,
+  );
+const ORAL_CURVE = makeCurve(ORAL_PATH);
+const NASAL_CURVE = makeCurve(NASAL_PATH);
+const AIR_ORAL = new THREE.Color(0x66ddff);
+const AIR_NASAL = new THREE.Color(0xffb861);
+
+// 음소별 구강 기류 경로(혀 위치가 반영된 채널). 사용자가 3D 편집기로 직접 그림(2026-07-14).
+// 여기 없는 음소는 공유 ORAL_PATH 사용. 협착점 u는 각 음소의 "자기 경로" 기준.
+const ORAL_PATH_BY_ID: Record<string, [number, number, number][]> = {
+  t: [[-0.274, -0.51, 0], [-0.257, -0.444, 0], [-0.248, -0.353, 0], [-0.242, -0.241, 0], [-0.239, -0.17, 0], [-0.264, -0.11, 0], [-0.293, -0.048, 0], [-0.309, 0.029, 0], [-0.295, 0.091, 0], [-0.272, 0.145, 0], [-0.258, 0.202, 0], [-0.23, 0.241, 0], [-0.176, 0.27, 0], [-0.108, 0.281, 0], [-0.048, 0.298, 0], [0.011, 0.315, 0], [0.065, 0.307, 0], [0.116, 0.27, 0], [0.156, 0.239, 0], [0.176, 0.199, 0], [0.226, 0.15, 0], [0.287, 0.141, 0], [0.336, 0.141, 0]],
+  s: [[-0.274, -0.503, 0], [-0.265, -0.462, 0], [-0.255, -0.391, 0], [-0.244, -0.345, 0], [-0.24, -0.304, 0], [-0.237, -0.246, 0], [-0.237, -0.187, 0], [-0.247, -0.138, 0], [-0.273, -0.1, 0], [-0.299, -0.052, 0], [-0.296, -0.018, 0], [-0.293, 0.051, 0], [-0.29, 0.103, 0], [-0.278, 0.162, 0], [-0.253, 0.198, 0], [-0.22, 0.247, 0], [-0.172, 0.272, 0], [-0.121, 0.286, 0], [-0.078, 0.297, 0], [-0.027, 0.311, 0], [0.02, 0.316, 0], [0.06, 0.315, 0], [0.097, 0.312, 0], [0.133, 0.299, 0], [0.158, 0.288, 0], [0.185, 0.266, 0], [0.201, 0.245, 0], [0.22, 0.21, 0], [0.248, 0.187, 0], [0.278, 0.169, 0], [0.31, 0.153, 0], [0.356, 0.144, 0], [0.385, 0.138, 0], [0.435, 0.142, 0], [0.477, 0.138, 0]],
+  k: [[-0.275, -0.527, 0], [-0.236, -0.151, 0], [-0.277, -0.091, 0], [-0.296, -0.019, 0], [-0.302, 0.053, 0], [-0.304, 0.121, 0], [-0.304, 0.174, 0], [-0.298, 0.226, 0], [-0.285, 0.267, 0], [-0.264, 0.299, 0], [-0.215, 0.327, 0], [-0.169, 0.333, 0], [-0.127, 0.331, 0], [-0.08, 0.301, 0], [-0.033, 0.276, 0], [0.002, 0.267, 0], [0.083, 0.229, 0], [0.121, 0.202, 0], [0.162, 0.169, 0], [0.22, 0.146, 0], [0.266, 0.139, 0], [0.34, 0.12, 0], [0.401, 0.123, 0]],
+  r_tap: [[-0.278, -0.517, 0], [-0.238, -0.156, 0], [-0.269, -0.097, 0], [-0.295, -0.053, 0], [-0.305, -0.01, 0], [-0.304, 0.041, 0], [-0.291, 0.09, 0], [-0.274, 0.131, 0], [-0.251, 0.179, 0], [-0.227, 0.226, 0], [-0.193, 0.241, 0], [-0.16, 0.25, 0], [-0.115, 0.247, 0], [-0.088, 0.244, 0], [-0.045, 0.244, 0], [-0.015, 0.251, 0], [0.015, 0.261, 0], [0.059, 0.275, 0], [0.103, 0.284, 0], [0.131, 0.293, 0], [0.162, 0.284, 0], [0.181, 0.268, 0], [0.191, 0.249, 0], [0.193, 0.224, 0], [0.201, 0.197, 0], [0.203, 0.166, 0], [0.226, 0.143, 0], [0.251, 0.138, 0], [0.309, 0.128, 0], [0.389, 0.121, 0], [0.512, 0.123, 0]],
+  c: [[-0.28, -0.523, 0], [-0.239, -0.136, 0], [-0.279, -0.076, 0], [-0.302, -0.015, 0], [-0.303, 0.065, 0], [-0.285, 0.16, 0], [-0.263, 0.201, 0], [-0.222, 0.241, 0], [-0.165, 0.274, 0], [-0.127, 0.293, 0], [-0.085, 0.316, 0], [-0.032, 0.316, 0], [0.03, 0.306, 0], [0.096, 0.293, 0], [0.138, 0.277, 0], [0.166, 0.26, 0], [0.188, 0.237, 0], [0.205, 0.195, 0], [0.235, 0.148, 0], [0.282, 0.146, 0], [0.322, 0.144, 0], [0.376, 0.137, 0], [0.42, 0.135, 0], [0.484, 0.142, 0]],
+  p: [[-0.276, -0.524, 0], [-0.24, -0.129, 0], [-0.306, -0.022, 0], [-0.305, 0.057, 0], [-0.283, 0.095, 0], [-0.266, 0.143, 0], [-0.261, 0.183, 0], [-0.232, 0.228, 0], [-0.167, 0.247, 0], [-0.114, 0.248, 0], [-0.067, 0.227, 0], [0.006, 0.208, 0], [0.073, 0.205, 0], [0.125, 0.2, 0], [0.192, 0.175, 0], [0.236, 0.153, 0], [0.282, 0.15, 0], [0.35, 0.142, 0], [0.382, 0.139, 0], [0.434, 0.139, 0], [0.475, 0.139, 0], [0.508, 0.142, 0]],
+  l: [[-0.275, -0.526, 0], [-0.239, -0.133, 0], [-0.299, -0.056, 0], [-0.301, 0.06, 0], [-0.289, 0.154, 0], [-0.252, 0.227, 0], [-0.193, 0.256, 0], [-0.145, 0.247, 0], [-0.095, 0.217, 0], [0.02, 0.157, 0], [0.082, 0.139, 0], [0.139, 0.139, 0], [0.222, 0.13, 0], [0.303, 0.129, 0], [0.375, 0.123, 0], [0.441, 0.117, 0]],
+  o: [[-0.281, -0.51, 0], [-0.233, -0.145, 0], [-0.287, -0.087, 0], [-0.311, 0.003, 0], [-0.303, 0.076, 0], [-0.294, 0.172, 0], [-0.283, 0.22, 0], [-0.253, 0.258, 0], [-0.193, 0.274, 0], [-0.142, 0.273, 0], [-0.052, 0.221, 0], [-0.014, 0.213, 0], [0.086, 0.204, 0], [0.17, 0.196, 0], [0.208, 0.177, 0], [0.237, 0.162, 0], [0.298, 0.154, 0], [0.416, 0.139, 0], [0.48, 0.139, 0], [0.514, 0.144, 0]],
+  u: [[-0.279, -0.512, 0], [-0.24, -0.124, 0], [-0.287, -0.098, 0], [-0.306, 0.025, 0], [-0.306, 0.071, 0], [-0.291, 0.137, 0], [-0.276, 0.202, 0], [-0.243, 0.272, 0], [-0.2, 0.291, 0], [-0.104, 0.256, 0], [-0.05, 0.229, 0], [0.026, 0.196, 0], [0.1, 0.199, 0], [0.161, 0.192, 0], [0.198, 0.172, 0], [0.245, 0.156, 0], [0.318, 0.149, 0], [0.405, 0.129, 0], [0.465, 0.136, 0], [0.527, 0.138, 0]],
+  eu: [[-0.273, -0.508, 0], [-0.248, -0.147, 0], [-0.288, -0.063, 0], [-0.304, 0.029, 0], [-0.304, 0.087, 0], [-0.29, 0.151, 0], [-0.271, 0.208, 0], [-0.238, 0.251, 0], [-0.177, 0.277, 0], [-0.126, 0.274, 0], [-0.066, 0.234, 0], [-0.023, 0.207, 0], [0.041, 0.207, 0], [0.114, 0.199, 0], [0.166, 0.186, 0], [0.221, 0.167, 0], [0.305, 0.157, 0], [0.366, 0.149, 0], [0.427, 0.146, 0], [0.471, 0.145, 0], [0.511, 0.143, 0]],
+  i: [[-0.268, -0.509, 0], [-0.224, -0.224, 0], [-0.235, -0.126, 0], [-0.299, 0.018, 0], [-0.296, 0.094, 0], [-0.274, 0.157, 0], [-0.241, 0.228, 0], [-0.182, 0.281, 0], [-0.125, 0.293, 0], [-0.063, 0.307, 0], [-0.001, 0.31, 0], [0.042, 0.312, 0], [0.099, 0.302, 0], [0.148, 0.28, 0], [0.187, 0.257, 0], [0.196, 0.218, 0], [0.221, 0.175, 0], [0.245, 0.156, 0], [0.326, 0.156, 0], [0.405, 0.156, 0], [0.451, 0.153, 0]],
+  e: [[-0.271, -0.502, 0], [-0.241, -0.14, 0], [-0.29, -0.061, 0], [-0.306, 0.005, 0], [-0.3, 0.065, 0], [-0.288, 0.145, 0], [-0.275, 0.206, 0], [-0.229, 0.243, 0], [-0.174, 0.261, 0], [-0.036, 0.242, 0], [0.007, 0.226, 0], [0.061, 0.21, 0], [0.124, 0.201, 0], [0.192, 0.18, 0], [0.211, 0.153, 0], [0.269, 0.15, 0], [0.352, 0.139, 0], [0.456, 0.138, 0], [0.495, 0.141, 0]],
+  ae: [[-0.273, -0.511, 0], [-0.237, -0.147, 0], [-0.291, -0.064, 0], [-0.312, -0.003, 0], [-0.311, 0.053, 0], [-0.312, 0.12, 0], [-0.282, 0.167, 0], [-0.253, 0.23, 0], [-0.218, 0.26, 0], [-0.137, 0.266, 0], [-0.077, 0.256, 0], [-0.023, 0.24, 0], [0.048, 0.229, 0], [0.097, 0.216, 0], [0.144, 0.2, 0], [0.199, 0.186, 0], [0.24, 0.156, 0], [0.424, 0.144, 0], [0.494, 0.147, 0]],
+};
+const ORAL_CURVE_BY_ID: Record<string, THREE.CatmullRomCurve3> = Object.fromEntries(
+  Object.entries(ORAL_PATH_BY_ID).map(([k, v]) => [k, makeCurve(v)]),
+);
+// 음소별 협착점(각 음소의 자기 경로 기준 u). 사용자 지정.
+const CONSTRICTION_BY_ID: Record<string, number> = { t: 0.763, s: 0.803, k: 0.543, r_tap: 0.723, c: 0.61, p: 0.88, l: 0.697 };
+
+// 조음위치별 폐쇄/협착 지점(구강 경로상 arc-length u: 0=성문 … 1=입술). null=개방(폐쇄 없음).
+// 난기류(ㅅㅆ·ㅈㅉㅊ)는 사용자 지정대로 치조(u≈0.87~0.9)에 위치.
+function constrictionU(manner: Manner | "vowel", id: string): number | null {
+  if (manner === "nasal") return null; // 비강 경로(구강 협착은 route로 처리)
+  switch (id) {
+    case "p": return 0.98; // 양순(입술)
+    case "t": return 0.92; // 치조 파열
+    case "s": return 0.92; // 치조 마찰(ㅅㅆ 난류)
+    case "c": return 0.84; // 치경경구개 파찰(ㅈㅉㅊ 난류, 치조 살짝 뒤)
+    case "k": return 0.62; // 연구개
+    default: return null; // ㄹ(설측=side flow 별도)·탄설·ㅎ·모음·활음
+  }
+}
+
+function Airflow({
+  seq,
+  air,
+}: {
+  seq: React.RefObject<Seq>;
+  air: React.RefObject<AirState>;
+}) {
+  const N = 72;
+  const ptsRef = useRef<THREE.Points>(null);
+  const geomRef = useRef<THREE.BufferGeometry>(null);
+  const phases = useRef(Float32Array.from({ length: N }, (_, i) => i / N)).current;
+  const speeds = useRef(Float32Array.from({ length: N }, (_, i) => 0.85 + ((i * 37) % 40) / 60)).current;
+  const positions = useRef(new Float32Array(N * 3)).current;
+  const tmp = useRef(new THREE.Vector3()).current;
+  const tmp2 = useRef(new THREE.Vector3()).current;
+  const rampAcc = useRef(0); // 제스처 시작 후 경과(스핀업용)
+  const lastId = useRef("");
+  const wasVisible = useRef(false);
+
+  useFrame((_, dt) => {
+    const grp = ptsRef.current;
+    const geo = geomRef.current;
+    if (!grp || !geo) return;
+    const a = air.current;
+    const s = seq.current;
+    const vis = a.on && s.active; // 제스처 진행 중에만 흐름
+    grp.visible = vis;
+    if (!vis) {
+      wasVisible.current = false;
+      return;
+    }
+
+    // 스핀업: 새 음소 시작 시 혀가 자리잡는 동안 기류가 느리게 시작 → 정상 속도로.
+    // 제스처가 새로 나타나거나(직전 프레임 비가시) 음소가 바뀌면 리셋(세그먼트/루프 경계에선 유지).
+    if (!wasVisible.current || a.id !== lastId.current) {
+      lastId.current = a.id;
+      rampAcc.current = 0;
+    }
+    wasVisible.current = true;
+    rampAcc.current += Math.min(dt, 0.05);
+    const rampDur = (s.segs[0]?.dur ?? 0.2) * 1.3;
+    const spin = 0.12 + 0.88 * smooth01(Math.min(1, rampAcc.current / rampDur));
+
+    // 이중모음: from→to 단모음 경로 보간. 혀의 활음은 seg1(from자세→to자세 전이)에서 일어나므로
+    // 기류 경로도 seg1 동안 보간. seg0(시작모음 접근)엔 from경로 유지, seg2+엔 to경로.
+    const isDiph = a.manner !== "nasal" && !!(a.diphFrom && a.diphTo);
+    let diphB = 0;
+    if (isDiph) {
+      if (s.i === 0) diphB = 0;
+      else if (s.i === 1 && s.segs[1]) diphB = smooth01(Math.min(1, s.elapsed / s.segs[1].dur));
+      else diphB = 1;
+    }
+
+    const nasal = a.manner === "nasal";
+    // 음소별 경로가 있으면 그걸, 없으면 공유 기본 경로.
+    const curve = nasal ? a.nasalCurve : a.oralPathById[a.id] ?? a.oralCurve;
+    const tc = nasal ? null : a.constrictionById[a.id] ?? constrictionU(a.manner, a.id);
+    // 파열/파찰: 폐쇄 구간(seg 0~1)엔 협착점에서 막힘 → 개방(seg 2)에서 버스트.
+    const blocked = (a.manner === "stop" || a.manner === "affricate") && s.i <= 1;
+    // 마찰(및 파찰 개방부): 협착점 부근 난류(지글거림).
+    const turbulent = a.manner === "fricative" || (a.manner === "affricate" && s.i >= 2);
+    // 설측(ㄹ): 혀끝은 치조에 닿고 기류가 혀 양옆(±Z)으로 갈라져 지나감.
+    const lateral = a.manner === "lateral";
+    // 파열 개방 순간(release 세그먼트): 축적된 기류가 빠르게 분출(버스트).
+    const bursting = a.manner === "stop" && s.i === 2;
+    const dtl = Math.min(dt, 0.05);
+
+    for (let i = 0; i < N; i++) {
+      let sp = speeds[i] * spin; // 스핀업: 혀가 자리잡는 동안 느리게 시작
+      // 마찰: 좁은 협착 틈(혀·입천장 사이)을 지날 때 가속(벤투리 효과).
+      if (turbulent && tc != null) {
+        sp *= 1 + Math.max(0, 1 - Math.abs(phases[i] - tc) / 0.12) * 1.3;
+      }
+      if (bursting) sp *= 2.6; // 개방 분출
+      let p = phases[i] + sp * dtl;
+      if (p > 1) p -= 1;
+      phases[i] = p;
+      let u = p;
+      if (blocked && tc != null && u > tc) u = tc; // 폐쇄: 협착점 앞에서 정체(압력 축적)
+      const uc = Math.min(0.999, Math.max(0, u));
+      if (isDiph) {
+        a.diphFrom!.getPointAt(uc, tmp);
+        a.diphTo!.getPointAt(uc, tmp2);
+        tmp.lerp(tmp2, diphB); // from→to 보간
+      } else {
+        curve.getPointAt(uc, tmp);
+      }
+      let x = tmp.x, y = tmp.y, z = tmp.z + 0.02;
+      // 마찰 난류: 협착점~하류(틈 통과 후)에서 지글거림, 통과 뒤 더 흩어짐.
+      if (turbulent && tc != null && u > tc - 0.06) {
+        const amp = 0.018 * (u > tc ? 2 : 1);
+        x += (Math.random() - 0.5) * amp;
+        y += (Math.random() - 0.5) * amp;
+      }
+      if (lateral) {
+        // 설측: 혀끝 접촉점(=협착점 tc)에서 기류가 혀 양옆으로 갈라짐.
+        // ⚠️ 좌우 대칭: ±Z(좌우)와 ±Y(위아래)를 독립 분리(4분면) → 양측이 같은 높이 범위.
+        const zSide = i % 2 === 0 ? 1 : -1;
+        const ySide = Math.floor(i / 2) % 2 === 0 ? 1 : -1;
+        const fork = Math.max(0, 1 - Math.abs(u - (tc ?? 0.85)) / 0.22);
+        z += zSide * 0.15 * fork; // 진짜 좌우(정면/회전 시 보임)
+        y += ySide * 0.045 * fork; // 시상면 가시성용 상하 스프레드(좌우 대칭)
+      }
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = z;
+    }
+    (geo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    (grp.material as THREE.PointsMaterial).color.copy(nasal ? AIR_NASAL : AIR_ORAL);
+  });
+
+  return (
+    <points ref={ptsRef} renderOrder={999} frustumCulled={false}>
+      <bufferGeometry ref={geomRef}>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} count={N} itemSize={3} />
+      </bufferGeometry>
+      <pointsMaterial
+        size={0.032}
+        sizeAttenuation
+        transparent
+        opacity={0.85}
+        depthTest={false}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />
+    </points>
+  );
+}
+
+// 기류 경로 편집기: 시상면(z=0) 클릭 평면 + 경로선/점 + 음소 협착점 마커.
+// 드래그(회전)와 클릭(배치)을 포인터 이동거리로 구분한다(5px 미만 = 클릭).
+// target "oral"/"nasal" = 경로 점 배치, "constriction" = 선택 음소의 협착점 지정.
+function PathEditor({
+  air,
+  editPts,
+  phonemePts,
+  target,
+  sel,
+  onPlace,
+  rev,
+}: {
+  air: React.RefObject<AirState>;
+  editPts: React.RefObject<{ oral: [number, number][]; nasal: [number, number][] }>;
+  phonemePts: React.RefObject<Record<string, [number, number][]>>;
+  target: "oral" | "nasal" | "phonemePath" | "constriction";
+  sel: string;
+  onPlace: (x: number, y: number) => void;
+  rev: number; // 변경 시 리렌더 트리거
+}) {
+  const down = useRef<[number, number] | null>(null);
+  void rev;
+  const oralPts = air.current.oralCurve.getPoints(60).map((p) => [p.x, p.y, 0.015] as [number, number, number]);
+  const nasalPts = air.current.nasalCurve.getPoints(60).map((p) => [p.x, p.y, 0.015] as [number, number, number]);
+  const editArr =
+    target === "constriction"
+      ? []
+      : target === "phonemePath"
+        ? (sel ? phonemePts.current[sel] ?? [] : [])
+        : editPts.current[target];
+  const editColor = target === "nasal" ? "#fb923c" : target === "phonemePath" ? "#22c55e" : "#22d3ee";
+  // 선택 음소의 협착점 위치(그 음소 곡선 기준)
+  let consPos: [number, number, number] | null = null;
+  if (target === "constriction" && sel) {
+    const u = air.current.constrictionById[sel] ?? constrictionU("stop", sel);
+    if (u != null) {
+      const c = air.current.oralPathById[sel] ?? air.current.oralCurve;
+      const p = c.getPointAt(Math.min(0.999, Math.max(0, u)));
+      consPos = [p.x, p.y, 0.06];
+    }
+  }
+  return (
+    <group renderOrder={1000}>
+      <mesh
+        position={[0, 0, 0]}
+        onPointerDown={(e) => {
+          down.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
+        }}
+        onPointerUp={(e) => {
+          const d = down.current;
+          down.current = null;
+          if (!d) return;
+          const dist = Math.hypot(e.nativeEvent.clientX - d[0], e.nativeEvent.clientY - d[1]);
+          if (dist < 5) {
+            e.stopPropagation();
+            onPlace(e.point.x, e.point.y);
+          }
+        }}
+      >
+        <planeGeometry args={[6, 6]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+      </mesh>
+      {/* 참조: 현재 구강/비강 경로선 */}
+      <Line points={oralPts} color="#22d3ee" lineWidth={1.5} depthTest={false} />
+      <Line points={nasalPts} color="#fb923c" lineWidth={1.5} depthTest={false} />
+      {/* 편집 중 경로의 배치 점 + 선 */}
+      {editArr.length >= 2 && (
+        <Line
+          points={editArr.map((p) => [p[0], p[1], 0.035] as [number, number, number])}
+          color={editColor}
+          lineWidth={2.5}
+          depthTest={false}
+        />
+      )}
+      {editArr.map((p, i) => (
+        <mesh key={i} position={[p[0], p[1], 0.04]} renderOrder={1001}>
+          <sphereGeometry args={[0.013, 12, 12]} />
+          <meshBasicMaterial color={editColor} depthTest={false} />
+        </mesh>
+      ))}
+      {/* 선택 음소의 협착점(자홍) */}
+      {consPos && (
+        <mesh position={consPos} renderOrder={1002}>
+          <sphereGeometry args={[0.02, 16, 16]} />
+          <meshBasicMaterial color="#e011a6" depthTest={false} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
 function RiggedModel({
   pose,
   jaw,
@@ -186,6 +526,7 @@ function RiggedModel({
   lip,
   live,
   showArt,
+  headOpacity,
   onIntrospect,
 }: {
   pose: React.RefObject<Pose>;
@@ -196,6 +537,7 @@ function RiggedModel({
   lip: React.RefObject<{ target: number; cur: number }>;
   live: React.RefObject<Pose>;
   showArt: React.RefObject<boolean>;
+  headOpacity: React.RefObject<number>;
   onIntrospect: (found: Found[]) => void;
 }) {
   const { scene } = useGLTF(MODEL_URL);
@@ -208,13 +550,22 @@ function RiggedModel({
       const m = o as THREE.Mesh;
       if (m.isMesh && m.morphTargetDictionary) {
         const posAttr = m.geometry.attributes.position as THREE.BufferAttribute;
-        const mats =
-          m.name === "lips"
-            ? Array.isArray(m.material)
-              ? m.material
-              : [m.material]
-            : [];
+        const mats = isLipMesh(m.name)
+          ? Array.isArray(m.material)
+            ? m.material
+            : [m.material]
+          : [];
         for (const mt of mats) mt.transparent = true;
+        // Upper lip wins the depth test at the closure seam (negative polygon offset
+        // biases it toward the camera) so it draws over the lower lip's overlap.
+        if (m.name === "lips_upper") {
+          for (const mt of mats) {
+            const std = mt as THREE.Material;
+            std.polygonOffset = true;
+            std.polygonOffsetFactor = -4;
+            std.polygonOffsetUnits = -4;
+          }
+        }
         const c = new THREE.Vector3();
         m.geometry.computeBoundingBox();
         m.geometry.boundingBox!.getCenter(c);
@@ -224,7 +575,7 @@ function RiggedModel({
           pos: m.position.clone(),
           quat: m.quaternion.clone(),
           baseVerts:
-            m.name === "lips" || m.name === "tongue"
+            isLipMesh(m.name) || m.name === "tongue"
               ? Float32Array.from(posAttr.array as ArrayLike<number>)
               : null,
           lipMats: mats,
@@ -246,7 +597,7 @@ function RiggedModel({
             // Rendered FLAT (texture as emissive) so flat panels don't catch
             // extra light and show as silhouettes.
             mat.alphaTest = 0.5;
-            mat.transparent = false;
+            mat.transparent = true; // 투명도 슬라이더용(opacity는 useFrame서 적용, alphaTest 구멍 유지)
             mat.depthWrite = true;
             mat.emissiveMap = mat.map;
             mat.emissive = new THREE.Color(0xffffff);
@@ -296,7 +647,8 @@ function RiggedModel({
         const seg = s.segs[s.i];
         const from = s.i === 0 ? s.start : s.segs[s.i - 1].pose;
         const fromOp = s.i === 0 ? s.startOp : s.segs[s.i - 1].op;
-        const t = smooth01(seg.dur > 0 ? s.elapsed / seg.dur : 1);
+        const raw = seg.dur > 0 ? s.elapsed / seg.dur : 1;
+        const t = seg.ease === "out" ? easeOut01(raw) : smooth01(raw);
         const p = lerpPose(from, seg.pose, t);
         for (const m in p) eff[m] = p[m];
         lipTarget = lerp(fromOp, seg.op, t);
@@ -315,24 +667,38 @@ function RiggedModel({
 
     // 3) jaw coupling values
     const jawW = eff["jaw_open"] ?? 0;
-    // lower-lip drop is now the rigger's `lips_jaw_open` morph (v2.5), coupled to
-    // jaw opening. max() so the manual debug slider still works when jaw is shut.
-    if (j.on)
-      eff["lips_jaw_open"] = Math.max(eff["lips_jaw_open"] ?? 0, jawW * j.lips);
+    // lower-lip drop is the rigger's `lips_jaw_open` morph, coupled to jaw opening.
+    // Read the manual override from pose.current (the debug slider writes there) —
+    // NOT from the persistent `eff` ref. `lips_jaw_open` is not in MORPHS, so it's
+    // never reset by the per-frame pose loop; taking Math.max against the stale eff
+    // value made it stick at its peak forever (mouth stayed open across phonemes
+    // after any vowel). Recompute fresh each frame so it releases when the jaw shuts.
+    const manualJawLip = pose.current["lips_jaw_open"] ?? 0;
+    eff["lips_jaw_open"] = j.on
+      ? Math.max(manualJawLip, jawW * j.lips)
+      : manualJawLip;
     pivot.set(j.pivotX, j.pivotY, 0);
     const maxRad = THREE.MathUtils.degToRad(j.maxDeg) * jawW;
 
     for (const b of bases.current) {
       // show/hide the added 3D tongue & lips meshes (head section stays visible)
-      if (b.name === "tongue" || b.name === "lips") {
+      if (b.name === "tongue" || isLipMesh(b.name)) {
         b.mesh.visible = showArt.current;
+      }
+      // 사지탈 플랜(head) 투명도 — 슬라이더로 조절.
+      if (b.name === "head") {
+        const hm = b.mesh.material as THREE.MeshStandardMaterial;
+        if (hm && hm.opacity !== headOpacity.current) hm.opacity = headOpacity.current;
       }
       const dict = b.mesh.morphTargetDictionary;
       const inf = b.mesh.morphTargetInfluences;
       if (dict && inf) {
         for (const [name, idx] of Object.entries(dict)) {
           let val = eff[name] ?? 0;
-          if (name === "velum_open" && VELUM_INVERTED) val = 1 - val; // ⚠️ inverted key
+          // ⚠️ inverted key: 개방(semantic 1)=적용 0. 닫힘은 완전 밀폐가 아니라 semantic을
+          // VELUM_CLOSED_MIN(0.1)로 floor해 적용 (1-0.1)*VELUM_CLOSE=0.9 까지만 — "닫힘"의 재정의.
+          if (name === "velum_open" && VELUM_INVERTED)
+            val = (1 - Math.max(VELUM_CLOSED_MIN, val)) * VELUM_CLOSE;
           inf[idx] = val;
         }
       }
@@ -347,30 +713,35 @@ function RiggedModel({
         // ㄱㄲㅋㅇ) is EXCLUDED: it only lifts the dorsum, and un-tucking for it
         // would push the tongue tip forward past the teeth (which should stay
         // put). Its own delta lifts the back on top of the tucked base.
+        // v25 rework tongue is baked to display scale + native size, so NO dynamic
+        // scaling/tuck (the old v1 tongue poked the teeth and needed shrink-at-rest
+        // + restore-on-gesture, which made the tongue visibly grow/shrink as morphs
+        // engaged). Apply only a static fwd/up placement offset; size is constant
+        // and three.js adds the morph deltas on top.
         const tf = tfit.current;
-        // Scale restores from the tuck (0.85) toward native (1.0) as ANY raising
-        // gesture engages. It reaches FULL scale well before the morph maxes out
-        // (÷0.3) so a GENTLE raise like ㅅ (tip_up 0.31 + lateral_channel 0.26)
-        // keeps the tongue full-size — it rises WITHOUT shrinking. Includes
-        // tongue_lateral_channel (ㅅ body-up). `tongue_back_up` (velar) stays
-        // excluded so the tip stays tucked while the dorsum lifts.
-        const rawRaise = Math.max(
-          eff["tongue_tip_up"] ?? 0,
-          eff["tongue_front_up"] ?? 0,
-          eff["tongue_lateral_channel"] ?? 0,
-        );
-        const raise = Math.min(1, rawRaise / 0.3);
-        const s = tf.scale + (1 - tf.scale) * raise;
-        const fwd = tf.fwd * (1 - raise);
-        const up = tf.up * (1 - raise);
-        const C = b.centroid;
         const base = b.baseVerts;
         const posAttr = b.mesh.geometry.attributes.position as THREE.BufferAttribute;
         const arr = posAttr.array as Float32Array;
+        // ⚠️ tongue_back_up 모프가 three.js에서 1.0으로 하드클램프되어(외삽 안 됨) 아무리
+        // 값을 키워도 혀 뒤(dorsum)가 (올라간) 연구개 면에 못 닿는다. 그래서 velar 자세에서는
+        // 혀 뒤(로컬 -X)를 기하적으로 추가로 들어올려 연구개에 접촉시킨다. back_up>1의 초과분을
+        // 신호로 사용(모음은 ≤0.6이라 리프트 0, ㄱㅋㄲ/ㅇ은 2.0으로 full 리프트). 접촉량은
+        // VELAR_DORSUM_LIFT로 미세조정. (모프 자체는 여전히 1.0으로 dorsum 기본 형태를 만든다.)
+        const backUp = eff["tongue_back_up"] ?? 0;
+        // ⚠️ tongue_back_up 모프가 three.js에서 1.0으로 하드클램프되어(외삽 안 됨) 혀 뒤가 (올라간)
+        // 연구개까지 못 닿는다 → back_up을 크게(2.0) 준 velar 자세에서만 혀 뒤(로컬 -X)를 기하적으로
+        // 추가로 들어올려 접촉시킨다. ㄱ은 back_up 2.0(리프트 ON), ㅇ은 사용자 지정 0.71(<0.9라 리프트
+        // OFF → 혀가 낮게 내려온 연구개에 맞춰 낮음). 모음(≤0.6)도 제외.
+        // ⚠️ 예전엔 backUp>=0.9 ? 0.05 : 0 이진 게이트라, 애니메이션 중 back_up이 0.9를
+        // 넘는 순간 리프트가 0→0.05로 툭 튀어 "뚝뚝 끊겨" 보였다. 0.75~1.0 구간에서 연속으로
+        // 램프시켜 팝 제거(ㅇ 0.71·모음 ≤0.6은 여전히 0, ㄱ 1.0은 full).
+        const dlift = Math.min(1, Math.max(0, (backUp - 0.75) / 0.25)) * 0.05;
         for (let i = 0; i < arr.length; i += 3) {
-          arr[i] = C.x + (base[i] - C.x) * s + fwd;
-          arr[i + 1] = C.y + (base[i + 1] - C.y) * s + up;
-          arr[i + 2] = C.z + (base[i + 2] - C.z) * s;
+          const lx = base[i]; // 로컬 X: +전방(치조) / −후방(연구개쪽)
+          const post = Math.min(1, Math.max(0, (-0.02 - lx) / 0.21));
+          arr[i] = base[i] + tf.fwd;
+          arr[i + 1] = base[i + 1] + tf.up + post * dlift;
+          arr[i + 2] = base[i + 2];
         }
         posAttr.needsUpdate = true;
         b.mesh.scale.setScalar(1);
@@ -384,7 +755,7 @@ function RiggedModel({
           b.mesh.position.copy(b.pos);
           b.mesh.quaternion.copy(b.quat);
         }
-      } else if (b.name === "lips") {
+      } else if (isLipMesh(b.name)) {
         for (const mt of b.lipMats) (mt as THREE.Material).opacity = lp.cur;
         // placement: forward/up offset + scale about the lip centroid
         const C = b.centroid;
@@ -486,7 +857,7 @@ export default function RiggedViewer() {
   // the teeth while pulling the root FORWARD (away from the pharynx) — a back
   // offset would do the opposite and block the pharynx. Morph deltas are added
   // unscaled, so gestures still reach the ridge/velum.
-  const tfit = useRef<TongueFit>({ fwd: 0, up: 0, scale: 0.85 });
+  const tfit = useRef<TongueFit>({ fwd: 0, up: 0, scale: 1.0 });
   const seq = useRef<Seq>({
     segs: [],
     loop: false,
@@ -501,6 +872,32 @@ export default function RiggedViewer() {
   // articulators). Toggle OFF to verify the sagittal head section is clean
   // (the rigger's drawn tongue/lips were removed from the head texture).
   const showArt = useRef(true);
+  const headOpacity = useRef(1); // 사지탈 플랜(head) 투명도
+  // 기류(airflow) 표시 상태 + 현재 재생 음소의 조음방법/ id (경로·거동 결정).
+  const air = useRef<AirState>({
+    on: true,
+    manner: "vowel",
+    id: "",
+    oralCurve: ORAL_CURVE,
+    nasalCurve: NASAL_CURVE,
+    constrictionById: { ...CONSTRICTION_BY_ID },
+    oralPathById: { ...ORAL_CURVE_BY_ID },
+    diphFrom: null,
+    diphTo: null,
+  });
+  // 기류 경로 편집(클릭 배치)용 점 목록. 공유(oral/nasal) + 음소별(byId).
+  const editPts = useRef<{ oral: [number, number][]; nasal: [number, number][] }>({
+    oral: [],
+    nasal: [],
+  });
+  const phonemePts = useRef<Record<string, [number, number][]>>({});
+
+  const [pathEdit, setPathEdit] = useState(false);
+  const [editTarget, setEditTarget] = useState<
+    "oral" | "nasal" | "phonemePath" | "constriction"
+  >("oral");
+  const [editRev, setEditRev] = useState(0);
+  const [coordsText, setCoordsText] = useState("");
 
   const [, force] = useState(0);
   const [found, setFound] = useState<Found[] | null>(null);
@@ -537,30 +934,56 @@ export default function RiggedViewer() {
     force((n) => n + 1);
   };
 
+  // 편집 모드: 애니메이션 없이 음소 자세를 그대로 정지 → 혀·입술이 고정돼 경로를 정확히 클릭 가능.
+  const holdStatic = (p: Pose, opacity: number) => {
+    seq.current.active = false;
+    pose.current = { ...fullPose(p) };
+    live.current = { ...pose.current };
+    lip.current.target = opacity;
+    lip.current.cur = opacity;
+    force((n) => n + 1);
+  };
+
   const playConsonant = (id: string) => {
     const c = CONSONANTS.find((x) => x.id === id)!;
+    air.current.manner = mannerOf(c.manner);
+    air.current.id = c.id;
+    air.current.diphFrom = air.current.diphTo = null;
+    setSel(id);
+    if (pathEdit) return holdStatic(c.pose, c.opacity); // 편집 중엔 정지 유지
     const g = consonantGesture(c);
     playSeq(g.segs, g.loop, c.opacity);
-    setSel(id);
   };
 
   const playVowel = (id: string) => {
     const vw = VOWELS[id];
+    air.current.manner = "vowel";
+    air.current.id = id;
+    air.current.diphFrom = air.current.diphTo = null;
+    setSel(id);
+    if (pathEdit) return holdStatic(vw.pose, vw.opacity);
     playSeq(
       [
-        { pose: fullPose(vw.pose), op: vw.opacity, dur: 0.2 },
-        { pose: fullPose(vw.pose), op: vw.opacity, dur: 0.45 },
+        { pose: fullPose(vw.pose), op: vw.opacity, dur: 0.2 }, // move to vowel
+        { pose: fullPose(vw.pose), op: vw.opacity, dur: 0.5 }, // hold the vowel
+        { pose: IDLE_POSE, op: LIP_OPACITY.idle, dur: 0.35 }, // return to rest
       ],
       false,
       vw.opacity,
     );
-    setSel(id);
   };
 
   const playDiphthong = (id: string) => {
     const d = DIPHTHONGS.find((x) => x.id === id)!;
+    air.current.manner = "vowel";
+    air.current.id = id;
+    // 이중모음 기류: 시작 단모음 → 도착 단모음 경로로 보간(경로 없는 모음은 공유 폴백).
+    air.current.diphFrom = air.current.oralPathById[d.from] ?? ORAL_CURVE;
+    air.current.diphTo = air.current.oralPathById[d.to] ?? ORAL_CURVE;
     const a = VOWELS[d.from];
     const b = VOWELS[d.to];
+    setSel(id);
+    if (pathEdit) return holdStatic(b.pose, b.opacity); // 편집 중엔 핵모음 자세로 정지
     playSeq(
       [
         { pose: fullPose(a.pose), op: a.opacity, dur: 0.14 },
@@ -570,7 +993,6 @@ export default function RiggedViewer() {
       loopDiph,
       a.opacity,
     );
-    setSel(id);
   };
 
   const ddkSelected = () => {
@@ -595,6 +1017,113 @@ export default function RiggedViewer() {
     pose.current = { ...pose.current, [name]: v };
     setSel("");
     force((n) => n + 1);
+  };
+
+  // ── 기류 경로 편집(클릭 배치) ──
+  const rebuildCurve = (t: "oral" | "nasal") => {
+    const arr = editPts.current[t];
+    const curve =
+      arr.length >= 2
+        ? makeCurve(arr.map(([x, y]) => [x, y, 0] as [number, number, number]))
+        : t === "oral"
+          ? ORAL_CURVE
+          : NASAL_CURVE;
+    if (t === "oral") air.current.oralCurve = curve;
+    else air.current.nasalCurve = curve;
+  };
+  const rebuildPhonemeCurve = (id: string) => {
+    const arr = phonemePts.current[id] ?? [];
+    if (arr.length >= 2)
+      air.current.oralPathById[id] = makeCurve(arr.map(([x, y]) => [x, y, 0] as [number, number, number]));
+    else delete air.current.oralPathById[id]; // 점 부족하면 공유 기본 경로로 폴백
+  };
+  // 선택 음소의 편집 대상 구강 곡선(음소별 있으면 그것, 없으면 공유).
+  const phonemeCurveFor = (id: string) => air.current.oralPathById[id] ?? air.current.oralCurve;
+  const refreshCoords = () => {
+    const fmt = (a: [number, number][]) =>
+      "[" + a.map(([x, y]) => `[${x.toFixed(3)}, ${y.toFixed(3)}, 0]`).join(", ") + "]";
+    const cons = Object.entries(air.current.constrictionById)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ");
+    const perPh = Object.entries(phonemePts.current)
+      .filter(([, a]) => a.length >= 2)
+      .map(([k, a]) => `  ${k}: ${fmt(a)}`)
+      .join("\n");
+    const txt =
+      `ORAL_PATH = ${fmt(editPts.current.oral)}\n\nNASAL_PATH = ${fmt(editPts.current.nasal)}` +
+      `\n\n협착점 = { ${cons} }` +
+      `\n\n음소별 경로 =\n${perPh}`;
+    setCoordsText(txt);
+    console.log("[airflow]\n" + txt);
+  };
+  // 곡선상 클릭점에 가장 가까운 u 찾기.
+  const nearestU = (curve: THREE.CatmullRomCurve3, x: number, y: number) => {
+    const pt = new THREE.Vector3();
+    let bestU = 0;
+    let bestD = Infinity;
+    for (let k = 0; k <= 300; k++) {
+      curve.getPointAt(k / 300, pt);
+      const d = (pt.x - x) ** 2 + (pt.y - y) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        bestU = k / 300;
+      }
+    }
+    return +bestU.toFixed(3);
+  };
+  const placePoint = (x: number, y: number) => {
+    if (editTarget === "constriction") {
+      if (!sel) return; // 선택 음소의 협착점: 그 음소 곡선상 가장 가까운 u.
+      air.current.constrictionById[sel] = nearestU(phonemeCurveFor(sel), x, y);
+    } else if (editTarget === "phonemePath") {
+      if (!sel) return; // 선택 음소의 경로에 점 추가.
+      (phonemePts.current[sel] ??= []).push([+x.toFixed(3), +y.toFixed(3)]);
+      rebuildPhonemeCurve(sel);
+    } else {
+      editPts.current[editTarget].push([+x.toFixed(3), +y.toFixed(3)]);
+      rebuildCurve(editTarget);
+    }
+    refreshCoords();
+    setEditRev((n) => n + 1);
+  };
+  const undoPoint = () => {
+    if (editTarget === "constriction") {
+      if (sel) delete air.current.constrictionById[sel];
+    } else if (editTarget === "phonemePath") {
+      if (sel) {
+        phonemePts.current[sel]?.pop();
+        rebuildPhonemeCurve(sel);
+      }
+    } else {
+      editPts.current[editTarget].pop();
+      rebuildCurve(editTarget);
+    }
+    refreshCoords();
+    setEditRev((n) => n + 1);
+  };
+  const clearPoints = () => {
+    if (editTarget === "constriction") {
+      if (sel) delete air.current.constrictionById[sel];
+    } else if (editTarget === "phonemePath") {
+      if (sel) {
+        phonemePts.current[sel] = [];
+        rebuildPhonemeCurve(sel);
+      }
+    } else {
+      editPts.current[editTarget] = [];
+      rebuildCurve(editTarget);
+    }
+    refreshCoords();
+    setEditRev((n) => n + 1);
+  };
+  // 현재 기본 경로를 시작점으로 불러오기(그 위에서 수정).
+  const loadDefaultPts = () => {
+    editPts.current.oral = ORAL_PATH.map(([x, y]) => [x, y]);
+    editPts.current.nasal = NASAL_PATH.map(([x, y]) => [x, y]);
+    rebuildCurve("oral");
+    rebuildCurve("nasal");
+    refreshCoords();
+    setEditRev((n) => n + 1);
   };
   const setJaw = (p: Partial<Jaw>) => {
     Object.assign(jaw.current, p);
@@ -635,7 +1164,9 @@ export default function RiggedViewer() {
           <pointLight position={[2, 0, 4]} intensity={0.5} color="#ffd9c0" />
 
           <Suspense fallback={null}>
-            <Bounds fit clip observe margin={1.15}>
+            {/* fit ONCE on load; NO `observe` — else every phoneme morph changes the
+                bbox and re-fits, wiping the user's zoom/pan/rotate. */}
+            <Bounds fit clip margin={1.15}>
               <RiggedModel
                 pose={pose}
                 jaw={jaw}
@@ -645,10 +1176,25 @@ export default function RiggedViewer() {
                 lip={lip}
                 live={live}
                 showArt={showArt}
+                headOpacity={headOpacity}
                 onIntrospect={setFound}
               />
             </Bounds>
           </Suspense>
+
+          {/* 기류 입자 — Bounds 밖(모델과 같은 월드좌표, 카메라만 모델에 맞춰짐). */}
+          <Airflow seq={seq} air={air} />
+          {pathEdit && (
+            <PathEditor
+              air={air}
+              editPts={editPts}
+              phonemePts={phonemePts}
+              target={editTarget}
+              sel={sel}
+              onPlace={placePoint}
+              rev={editRev}
+            />
+          )}
 
           <OrbitControls
             enablePan
@@ -771,6 +1317,117 @@ export default function RiggedViewer() {
           3D 혀·입술 표시 <span className="text-xs text-slate-400">(끄면 단면만)</span>
         </label>
 
+        <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <span className="whitespace-nowrap">사지탈 투명도</span>
+          <input
+            type="range"
+            min={0.1}
+            max={1}
+            step={0.05}
+            defaultValue={1}
+            className="flex-1"
+            onChange={(e) => {
+              headOpacity.current = parseFloat(e.target.value);
+            }}
+          />
+        </label>
+
+        <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            defaultChecked={air.current.on}
+            onChange={(e) => {
+              air.current.on = e.target.checked;
+              force((n) => n + 1);
+            }}
+          />
+          공기 흐름 표시{" "}
+          <span className="text-xs text-slate-400">(구강=청록·비강=주황, 파열=버스트·마찰=난류)</span>
+        </label>
+
+        {/* 기류 경로 편집 — 빈 기도 공간을 클릭해 정확한 경로 배치 */}
+        <div className="rounded-lg bg-cyan-50 p-2">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={pathEdit}
+              onChange={(e) => {
+                setPathEdit(e.target.checked);
+                if (e.target.checked && !coordsText) refreshCoords();
+              }}
+            />
+            기류 경로 편집 (클릭 배치)
+          </label>
+          {pathEdit && (
+            <div className="mt-2 flex flex-col gap-2">
+              <div className="text-[11px] text-slate-500">
+                {editTarget === "constriction"
+                  ? "음소 선택 후, 경로 위에서 난류/버스트가 일어날 지점을 클릭(자홍 마커)."
+                  : editTarget === "phonemePath"
+                    ? "음소 선택 후, 그 음소의 기류 경로(혀 위 채널)를 성문→입 순서로 클릭해 그림(초록)."
+                    : "시상면으로 맞춘 뒤, 성문→인두→(포트)→구강/비강 순서로 빈 공간을 클릭. 드래그는 회전."}
+              </div>
+              <div className="grid grid-cols-2 gap-1">
+                {(["oral", "nasal", "phonemePath", "constriction"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setEditTarget(t)}
+                    className={
+                      "rounded px-2 py-1 text-xs font-medium " +
+                      (editTarget === t
+                        ? t === "oral"
+                          ? "bg-cyan-500 text-white"
+                          : t === "nasal"
+                            ? "bg-orange-500 text-white"
+                            : t === "phonemePath"
+                              ? "bg-green-600 text-white"
+                              : "bg-fuchsia-600 text-white"
+                        : "bg-white text-slate-600 ring-1 ring-slate-200")
+                    }
+                  >
+                    {t === "oral"
+                      ? `구강공유 (${editPts.current.oral.length})`
+                      : t === "nasal"
+                        ? `비강공유 (${editPts.current.nasal.length})`
+                        : t === "phonemePath"
+                          ? "음소경로"
+                          : "음소협착"}
+                  </button>
+                ))}
+              </div>
+              {(editTarget === "constriction" || editTarget === "phonemePath") && (
+                <div className="rounded bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                  현재 음소: <b className="text-slate-800">{sel || "(없음 — 음소 버튼 클릭)"}</b>
+                  {editTarget === "phonemePath" && sel && (
+                    <span> · 경로점 {phonemePts.current[sel]?.length ?? 0}개</span>
+                  )}
+                  {editTarget === "constriction" && sel && air.current.constrictionById[sel] != null && (
+                    <span> · 협착 u={air.current.constrictionById[sel]}</span>
+                  )}
+                </div>
+              )}
+              <div className="flex gap-1">
+                <button onClick={undoPoint} className="flex-1 rounded bg-white px-2 py-1 text-xs ring-1 ring-slate-200">
+                  실행취소
+                </button>
+                <button onClick={clearPoints} className="flex-1 rounded bg-white px-2 py-1 text-xs ring-1 ring-slate-200">
+                  지우기
+                </button>
+                <button onClick={loadDefaultPts} className="flex-1 rounded bg-white px-2 py-1 text-xs ring-1 ring-slate-200">
+                  기본불러오기
+                </button>
+              </div>
+              <textarea
+                readOnly
+                value={coordsText}
+                onFocus={(e) => e.target.select()}
+                className="h-24 w-full resize-none rounded bg-white p-1.5 font-mono text-[10px] text-slate-700 ring-1 ring-slate-200"
+                placeholder="배치한 점의 좌표가 여기 표시됩니다 (복사해서 전달)"
+              />
+            </div>
+          )}
+        </div>
+
         {/* lips placement (fix overlap with head's sagittal lips) */}
         <div className="rounded-lg bg-sky-50 p-2">
           <button
@@ -789,7 +1446,10 @@ export default function RiggedViewer() {
               <div className="mt-1 text-[11px] font-semibold text-slate-600">혀 (치아 뒤로)</div>
               <Slider label="앞뒤(X)" min={-0.3} max={0.08} step={0.002} value={tf.fwd} onChange={(v) => setTfit({ fwd: v })} />
               <Slider label="상하(Y)" min={-0.12} max={0.12} step={0.002} value={tf.up} onChange={(v) => setTfit({ up: v })} />
-              <Slider label="크기 (모으기)" min={0.55} max={1.3} step={0.01} value={tf.scale} onChange={(v) => setTfit({ scale: v })} />
+              <div className="flex items-center justify-between text-[11px] text-slate-500">
+                <span>크기</span>
+                <span className="font-mono">1.000 (고정 · 네이티브)</span>
+              </div>
               <p className="text-[11px] text-slate-500">
                 새 입술·혀가 사지철 머리의 그려진 부위/치아와 겹치지 않게 맞춥니다.
                 혀가 치아를 뚫으면 앞뒤(X)를 음수로 당겨 구강 안으로 넣으세요.

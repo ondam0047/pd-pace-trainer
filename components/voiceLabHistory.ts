@@ -16,7 +16,8 @@ export type VoiceLabModuleId =
   | "speech_rate"
   | "fluency"
   | "pitch"
-  | "vhi";
+  | "vhi"
+  | "articulation_train";
 
 export interface VoiceLabRecord {
   id: string;
@@ -102,6 +103,7 @@ export const MODULE_LABELS: Record<VoiceLabModuleId, string> = {
   fluency: "유창성",
   pitch: "피치",
   vhi: "VHI",
+  articulation_train: "음운변동 조음 훈련",
 };
 
 export function exportHistoryToCSV(records: VoiceLabRecord[]): string {

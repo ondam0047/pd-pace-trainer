@@ -21,3 +21,7 @@ pnpm-debug.log*
 /public/models/head-rigged-v25-preRigDeliv.glb
 /public/models/head-rigged_head.png
 /public/_r/
+
+# dev server logs + working GLB backups
+dev-*.log
+/public/models/head-rigged.backup-*.glb

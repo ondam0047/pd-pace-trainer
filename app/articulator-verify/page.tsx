@@ -19,7 +19,12 @@ export default function ArticulatorVerifyPage() {
           <h1 className="text-lg font-semibold text-slate-900 sm:text-xl">
             조음기관 음소 산출
           </h1>
-          <span className="text-xs text-slate-400">verify</span>
+          <Link
+            href="/articulator-compare"
+            className="text-sm text-slate-600 hover:text-slate-900"
+          >
+            목표 vs 실제 비교 →
+          </Link>
         </div>
 
         <p className="text-xs text-slate-500 sm:text-sm">
