@@ -837,7 +837,10 @@ function Btn({
   );
 }
 
-export default function RiggedViewer() {
+// dev=false(기본): 공개용 음소산출 — +Z 측면에서 시작, 디버그 컨트롤(혀·입술 표시,
+//   공기 흐름, 기류 경로 편집, 입술·혀 맞춤, 턱 추종, 수동 모프, 타깃 검증 배지) 숨김.
+// dev=true: 리거 검증용 — 위 컨트롤 전부 노출(/articulator-verify, 허브 미노출 라우트).
+export default function RiggedViewer({ dev = false }: { dev?: boolean } = {}) {
   const pose = useRef<Pose>({ ...IDLE_POSE });
   const live = useRef<Pose>({ ...IDLE_POSE });
   const jaw = useRef<Jaw>({
@@ -1153,7 +1156,12 @@ export default function RiggedViewer() {
         }}
       >
         <Canvas
-          camera={{ position: [2.4, 0, 0.5], fov: 35, near: 0.01, far: 100 }}
+          camera={{
+            position: (dev ? [2.4, 0, 0.5] : [0, 0, 3]) as [number, number, number],
+            fov: 35,
+            near: 0.01,
+            far: 100,
+          }}
           dpr={[1, 2]}
           gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true }}
         >
@@ -1221,20 +1229,22 @@ export default function RiggedViewer() {
       </div>
 
       <div className="flex w-full max-w-md flex-col gap-3 rounded-2xl bg-white p-4 shadow-sm lg:w-[24rem]">
-        <div className="rounded-lg bg-slate-50 p-2 text-xs">
-          {found === null ? (
-            <span className="text-slate-500">모델 로드 중…</span>
-          ) : missing.length === 0 && extra.length === 0 ? (
-            <span className="font-semibold text-emerald-600">
-              ✓ head-rigged.glb · 13개 타깃 정상
-            </span>
-          ) : (
-            <span className="text-rose-600">
-              {missing.length > 0 && `누락: ${missing.join(", ")} `}
-              {extra.length > 0 && `예상밖: ${extra.join(", ")}`}
-            </span>
-          )}
-        </div>
+        {dev && (
+          <div className="rounded-lg bg-slate-50 p-2 text-xs">
+            {found === null ? (
+              <span className="text-slate-500">모델 로드 중…</span>
+            ) : missing.length === 0 && extra.length === 0 ? (
+              <span className="font-semibold text-emerald-600">
+                ✓ head-rigged.glb · 13개 타깃 정상
+              </span>
+            ) : (
+              <span className="text-rose-600">
+                {missing.length > 0 && `누락: ${missing.join(", ")} `}
+                {extra.length > 0 && `예상밖: ${extra.join(", ")}`}
+              </span>
+            )}
+          </div>
+        )}
 
         <div>
           <div className="mb-1 text-xs font-semibold text-slate-700">자음 (11그룹)</div>
@@ -1305,17 +1315,19 @@ export default function RiggedViewer() {
           </button>
         </div>
 
-        <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            checked={showArt.current}
-            onChange={(e) => {
-              showArt.current = e.target.checked;
-              force((n) => n + 1);
-            }}
-          />
-          3D 혀·입술 표시 <span className="text-xs text-slate-400">(끄면 단면만)</span>
-        </label>
+        {dev && (
+          <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={showArt.current}
+              onChange={(e) => {
+                showArt.current = e.target.checked;
+                force((n) => n + 1);
+              }}
+            />
+            3D 혀·입술 표시 <span className="text-xs text-slate-400">(끄면 단면만)</span>
+          </label>
+        )}
 
         <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
           <span className="whitespace-nowrap">사지탈 투명도</span>
@@ -1332,6 +1344,7 @@ export default function RiggedViewer() {
           />
         </label>
 
+        {dev && (
         <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
           <input
             type="checkbox"
@@ -1344,8 +1357,10 @@ export default function RiggedViewer() {
           공기 흐름 표시{" "}
           <span className="text-xs text-slate-400">(구강=청록·비강=주황, 파열=버스트·마찰=난류)</span>
         </label>
+        )}
 
         {/* 기류 경로 편집 — 빈 기도 공간을 클릭해 정확한 경로 배치 */}
+        {dev && (
         <div className="rounded-lg bg-cyan-50 p-2">
           <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
             <input
@@ -1427,8 +1442,10 @@ export default function RiggedViewer() {
             </div>
           )}
         </div>
+        )}
 
         {/* lips placement (fix overlap with head's sagittal lips) */}
+        {dev && (
         <div className="rounded-lg bg-sky-50 p-2">
           <button
             onClick={() => setShowFit((s) => !s)}
@@ -1458,8 +1475,10 @@ export default function RiggedViewer() {
             </div>
           )}
         </div>
+        )}
 
         {/* jaw tuning */}
+        {dev && (
         <div className="rounded-lg bg-amber-50 p-2">
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
             <input type="checkbox" checked={j.on} onChange={(e) => setJaw({ on: e.target.checked })} />
@@ -1481,8 +1500,10 @@ export default function RiggedViewer() {
             </div>
           )}
         </div>
+        )}
 
         {/* manual morph sliders */}
+        {dev && (
         <div className="rounded-lg bg-slate-50 p-2">
           <button
             onClick={() => setShowManual((s) => !s)}
@@ -1514,6 +1535,7 @@ export default function RiggedViewer() {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

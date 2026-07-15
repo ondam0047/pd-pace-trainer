@@ -33,7 +33,7 @@ export default function ArticulatorVerifyPage() {
           <strong>웹 코드</strong>에서 처리(운영 패턴과 동일). 리거 재작업 항목 점검용.
         </p>
 
-        <RiggedViewer />
+        <RiggedViewer dev />
       </div>
     </main>
   );
