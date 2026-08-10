@@ -811,11 +811,20 @@ export default function App() {
 
   const startEval = () => { setResults({}); setStep(0); setSaved(false); setConsent(null); setScreen("consent"); };
   const confirmConsent = (c) => { setConsent(c); setScreen("eval"); };
-  const onModuleDone = (key, r) => {
-    const nr = { ...results, [key]: r };
-    setResults(nr);
+  // 다음 단계로. 마지막이면 결과 화면.
+  const goNext = () => {
     if (step + 1 < MODULES.length) setStep(step + 1);
     else setScreen("result");
+  };
+  const onModuleDone = (key, r) => {
+    setResults({ ...results, [key]: r });
+    goNext();
+  };
+  // 건너뛰기 — 이 검사는 결과에 안 담김(결과·보고서·CSV 에서 '-' 로 표시).
+  const skipModule = () => {
+    const key = MODULES[step].key;
+    if (results[key]) { const nr = { ...results }; delete nr[key]; setResults(nr); }
+    goNext();
   };
   const finalize = async () => {
     const s = { id: info.id || ("익명-" + Date.now()), name: info.name, age: info.age, edu: info.edu, sex: info.sex, timepoint, date: new Date().toISOString().slice(0, 10), results, consent };
@@ -902,10 +911,17 @@ export default function App() {
             className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 font-semibold hover:border-teal-500 disabled:opacity-40 disabled:cursor-not-allowed"
             title="이전 검사로 (현재 단계 입력은 버려짐)"
           >← 이전 검사</button>
-          <button
-            onClick={() => setScreen("home")}
-            className="text-slate-400 hover:text-slate-600"
-          >처음으로(저장 안 됨)</button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setScreen("home")}
+              className="text-slate-400 hover:text-slate-600"
+            >처음으로(저장 안 됨)</button>
+            <button
+              onClick={skipModule}
+              className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 font-semibold hover:border-teal-500"
+              title="이 검사는 하지 않고 넘어갑니다 (결과에 기록되지 않음)"
+            >이 검사 건너뛰기 →</button>
+          </div>
         </div>
       </Shell>
     );
