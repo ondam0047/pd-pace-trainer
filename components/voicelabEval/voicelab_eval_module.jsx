@@ -26,7 +26,9 @@ import { NamingCard, NAMING_ITEMS } from "./namingCards";
    교체하면 됨 (지금은 허브 localStorage, 정식 운영 시 hub API fetch 로 교체).
 */
 
+// TPS = 저장된 시점 라벨(과거 mid 세션 표시용이라 유지). TP_CHOICES = 지금 고를 수 있는 시점.
 const TPS = { pre: "사전", mid: "중간", post: "사후" };
+const TP_CHOICES = ["pre", "post"];
 
 // ---------- shared UI ----------
 const Card = ({ children }) => (
@@ -772,12 +774,9 @@ function ModQOL({ onDone }) {
 }
 
 // =================================================================
-// 모듈 순서 정의
-//   FULL: 사전(pre) · 사후(post) — 8단계 풀배터리.
-//   MID : 중간점검(mid) — 6주차 빠른 점검. 변화 민감도 높은 이름대기·유창성만.
-//   * 인지 분할(등록 → 간섭과제 → 지연회상) 표준 순서는 FULL 에서 보장. MID 에서는
-//     지남력·기억 단계를 빼므로 cog_reg / cog_recall 도 제외 (분할이 의미가 없으므로).
-// =================================================================
+// 모듈 순서 정의 — 사전(pre) · 사후(post) 공통.
+//   중간점검(mid)은 아직 설계 전이라 선택지에서 뺐다(TP_CHOICES). 저장 포맷·보고서는
+//   mid 를 계속 지원하므로, 만들 때 TP_CHOICES 에 "mid" 를 되넣고 전용 목록을 두면 됨.
 //   off: true = 임시 비활성화. 다시 열 때 off 만 지우면 됨. 저장 포맷·보고서는
 //   해당 key 가 없으면 '-' 로 나오므로 그대로 두면 된다.
 const MODULES_FULL = [
@@ -790,12 +789,8 @@ const MODULES_FULL = [
   { key: "gds", name: "우울 (SGDS-K)", comp: ModGDS },
   { key: "qol", name: "삶의 질 (WHOQOL-BREF)", comp: ModQOL },
 ];
-const MODULES_MID = [
-  { key: "naming", name: "이름대기", comp: ModNaming, off: true },
-  { key: "fluency", name: "생성이름대기 (유창성)", comp: ModFluency },
-];
 const isOn = (key) => MODULES_FULL.some((m) => m.key === key && !m.off);
-const modulesFor = (tp) => (tp === "mid" ? MODULES_MID : MODULES_FULL).filter((m) => !m.off);
+const ACTIVE_MODULES = MODULES_FULL.filter((m) => !m.off);
 
 // =================================================================
 // 메인 앱
@@ -812,7 +807,7 @@ export default function App() {
 
   useEffect(() => { listSessions().then(setSessions); }, [screen]);
 
-  const MODULES = modulesFor(timepoint);
+  const MODULES = ACTIVE_MODULES;
 
   const startEval = () => { setResults({}); setStep(0); setSaved(false); setConsent(null); setScreen("consent"); };
   const confirmConsent = (c) => { setConsent(c); setScreen("eval"); };
@@ -854,12 +849,10 @@ export default function App() {
           </div>
           <p className="font-semibold text-slate-700 mb-2">평가 시점</p>
           <div className="flex gap-2 mb-2">
-            {Object.entries(TPS).map(([k, v]) => <Pill key={k} active={timepoint === k} onClick={() => setTimepoint(k)}>{v}</Pill>)}
+            {TP_CHOICES.map((k) => <Pill key={k} active={timepoint === k} onClick={() => setTimepoint(k)}>{TPS[k]}</Pill>)}
           </div>
           <p className="text-xs text-slate-500 mb-6">
-            {timepoint === "mid"
-              ? `중간 평가는 변화 민감도 높은 과제만 ${MODULES.length}단계 진행해요 (약 5분).`
-              : `${TPS[timepoint]} 평가는 ${MODULES.length}단계로 진행해요 — ${MODULES.map((m) => m.name.replace(/^인지 — /, "")).join(" · ")}.`}
+            {`${TPS[timepoint]} 평가는 ${MODULES.length}단계로 진행해요 — ${MODULES.map((m) => m.name.replace(/^인지 — /, "")).join(" · ")}.`}
           </p>
           <div className="flex gap-3">
             <Btn onClick={startEval} disabled={!info.id}>평가 시작 →</Btn>
