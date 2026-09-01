@@ -282,3 +282,17 @@ body {
     color: #0f172a !important;
   }
 }
+
+/* 키보드 단축키 표기 — 자발화 검수 편집기 */
+.kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid #cbd5e1;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #f8fafc;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  color: #475569;
+}
