@@ -208,6 +208,10 @@ export default function SibilantTrainer() {
           .webkitAudioContext;
       const ctx = new Ctx();
       audioCtxRef.current = ctx;
+      // 자동재생 정책으로 suspended 면 분석 프레임이 전부 0 → 스펙트럼 중심이 안 잡힌다
+      if (ctx.state === "suspended") {
+        try { await ctx.resume(); } catch { /* noop */ }
+      }
       const source = ctx.createMediaStreamSource(stream);
       const a = ctx.createAnalyser();
       a.fftSize = 4096;

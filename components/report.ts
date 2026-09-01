@@ -23,6 +23,10 @@ export interface ReportSpec {
 
 import { EMBLEM_MARK_SVG } from "./emblem";
 
+/** 전 모듈 리포트 하단 고정 문구 — 개별 페이지가 빠뜨릴 수 없도록 여기서 강제한다. */
+export const REPORT_DISCLAIMER =
+  "본 보고서는 변화 추적·기록 보조용이며 진단 도구가 아닙니다. 표기된 참고 범위는 해석을 돕기 위한 것으로 정상·비정상 판정이 아니며, 임상 판단은 전문가 확인을 거쳐야 합니다.";
+
 function esc(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -38,18 +42,20 @@ function buildHtml(spec: ReportSpec): string {
     .map((sec) => {
       const rows = sec.rows
         .map((r) => {
+          // 비의료기기 원칙: 참고치는 보여주되 '정상/비정상 판정'으로 가지 않는다.
+          // 색만으로 구분되지 않도록 텍스트로도 구분한다(색각 이상 대응).
           const badge =
             r.status === "normal"
-              ? `<span class="badge ok">정상</span>`
+              ? `<span class="badge ok">범위 내</span>`
               : r.status === "abnormal"
-                ? `<span class="badge bad">이상</span>`
+                ? `<span class="badge bad">범위 밖</span>`
                 : r.ref
                   ? ``
                   : `<span class="badge ref">참고</span>`;
           return `<tr><td>${esc(r.label)}</td><td class="num">${esc(r.value)}</td><td class="ref">${esc(r.ref ?? "")}</td><td>${badge}</td></tr>`;
         })
         .join("");
-      return `<h2>${esc(sec.heading)}</h2><table><thead><tr><th>지표</th><th>값</th><th>정상 기준</th><th>판정</th></tr></thead><tbody>${rows}</tbody></table>`;
+      return `<h2>${esc(sec.heading)}</h2><table><thead><tr><th>지표</th><th>값</th><th>참고 범위</th><th>참고 범위 대비</th></tr></thead><tbody>${rows}</tbody></table>`;
     })
     .join("");
 
@@ -96,9 +102,10 @@ function buildHtml(spec: ReportSpec): string {
     <span>평가자 <span class="blank"></span></span>
     <span>검사일 <span class="blank"></span></span>
   </div>
-  ${spec.chartSvg ? `<div class="chart">${spec.chartSvg}</div><div class="chart-cap">초록 원 = 정상 임계값 · 점이 원 밖(빨강)이면 이상</div>` : ""}
+  ${spec.chartSvg ? `<div class="chart">${spec.chartSvg}</div><div class="chart-cap">초록 원 = 참고 범위 · 점이 원 밖이면 참고 범위를 벗어남</div>` : ""}
   ${sectionsHtml}
   ${spec.footnote ? `<div class="foot">${esc(spec.footnote)}</div>` : ""}
+  <div class="foot">${esc(REPORT_DISCLAIMER)}</div>
   <div class="genat">생성: ${esc(dateStr)} · 대림대학교 Voice Lab</div>
   </div>
 </body></html>`;

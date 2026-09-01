@@ -365,7 +365,7 @@ function ModFluency({ onDone }) {
   const [phon, setPhon] = useState(0);
   return (
     <div className="space-y-4">
-      <p className="text-slate-500">1분 동안 해당하는 단어를 최대한 많이 말하게 합니다(COWAT 방식). 정상 노인은 ‘동물’에서 대략 15개 내외(연령·교육수준에 따라 변동). 본 모듈은 사전·사후 변화 비교가 주 목적입니다.</p>
+      <p className="text-slate-500">1분 동안 해당하는 단어를 최대한 많이 말하게 합니다(COWAT 방식). 일반 노인은 ‘동물’에서 대략 15개 내외(연령·교육수준에 따라 변동). 본 모듈은 사전·사후 변화 비교가 주 목적입니다.</p>
       <HelpToggle title="유창성 카운팅 기준 (중복·오류 제외)">
         <p><b>제외</b>: ① 같은 단어 반복(개·개), ② 범주 밖(동물에서 ‘사과’), ③ 고유명사(우리집 강아지 이름 “복실이”), ④ 단순 어형 변형(가다·갔다·가니까는 음소유창성에서 1개로 본다).</p>
         <p><b>인정</b>: 상위·하위 범주 모두 인정(개·진돗개·삽살개는 각각 1개). 외래어·방언 인정. 잘못 알고 있는 분류(‘고래는 물고기’)는 어르신 인지 기준 그대로 인정.</p>
@@ -466,7 +466,7 @@ function ModDiscourse({ onDone }) {
 // 원판: Sheikh JI, Yesavage JA. Geriatric Depression Scale (GDS-SF, 1986) — 공유저작물.
 // 본 코드의 문항 문구는 위 표준화본을 기준으로 작성되었습니다. 임상 운영 시
 // 대한치매학회 배포 PDF의 최신본 문구와 한 번 더 대조 확인 후 사용하세요.
-// 채점 규칙: 우울 방향 응답 = 1점 / 그 외 = 0점, 합 0–15. 절단점 8 이상이면 우울 의심.
+// 채점 규칙: 우울 방향 응답 = 1점 / 그 외 = 0점, 합 0–15. 참고 절단점 8 이상이면 상담·연계 권유(판정 아님).
 // =================================================================
 const GDS = [
   { q: "현재의 자기 생활에 대체로 만족하십니까?", pos: true },                              //  1 (아니오=우울)
@@ -549,7 +549,7 @@ function ModGDS({ onDone }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-slate-500">예/아니오로 답하게 하세요. (절단점 8점 이상 → 우울 가능성, 전문 상담/연계 권유)</p>
+      <p className="text-slate-500">예/아니오로 답하게 하세요. (참고 절단점 8점 이상이면 전문 상담·연계를 권합니다)</p>
       <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 leading-relaxed">
         <b>SGDS-K</b> · 한국판 단축형 노인우울척도 (15문항). 출처: 조맹제 외(1999), 신경정신의학 38(1), 48–63;
         대한치매학회 평가도구 배포본. 원판: Sheikh &amp; Yesavage (1986) GDS-SF (공유저작물).
@@ -577,7 +577,7 @@ function ModGDS({ onDone }) {
       })}
 
       <p className={`text-center text-sm font-semibold ${score >= 8 ? "text-rose-600" : "text-slate-500"}`}>
-        현재까지 총점 {score}/15 {score >= 8 ? "· 우울 의심" : ""}
+        현재까지 총점 {score}/15 {score >= 8 ? "· 참고 절단점(8점) 이상" : ""}
       </p>
     </div>
   );

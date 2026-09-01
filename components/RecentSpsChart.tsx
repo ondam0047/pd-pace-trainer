@@ -328,7 +328,7 @@ export default function RecentSpsChart({
               className="inline-block h-[3px] w-6 rounded-full"
               style={{ backgroundColor: moduleColor }}
             />
-            <span>측정 SPS</span>
+            <span>낭독 속도(추정)</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-block h-[3px] w-6 rounded-full bg-slate-500" />

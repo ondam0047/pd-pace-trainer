@@ -14,7 +14,7 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-const SEVERITY_STEPS = ["정상", "살짝 좋지 않음", "좋지 않음", "심각함"];
+const SEVERITY_STEPS = ["불편 거의 없음", "살짝 좋지 않음", "좋지 않음", "심각함"];
 
 export function downloadVhiReport(
   answers: (number | null)[],
@@ -90,7 +90,7 @@ export function downloadVhiReport(
 
   <div class="foot">
     근거: Jacobson 외 (1997) Am.J.Speech Lang.Pathol. 6:66-70 · 김재옥 외 (2007) 음성과학 14:111-125.
-    선별 절단점 ≈ 15점, 임상적 유의 변화(MCID) ≈ 18점. 중증도 구간(정상 0–14 · 살짝 좋지 않음 15–30 · 좋지 않음 31–60 · 심각함 61–120)은 해석 보조용입니다.<br/>
+    참고 절단점 ≈ 15점, 임상적 유의 변화(MCID) ≈ 18점. 구간(불편 거의 없음 0–14 · 살짝 좋지 않음 15–30 · 좋지 않음 31–60 · 심각함 61–120)은 해석 보조용이며 진단·중증도 판정이 아닙니다.<br/>
     생성: ${esc(now)} · 대림대학교 Voice Lab
   </div>
   </div>

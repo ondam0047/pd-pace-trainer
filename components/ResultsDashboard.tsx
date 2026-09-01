@@ -235,7 +235,7 @@ function SimpleLineChart({
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-block h-3 w-3 rounded-full bg-blue-600" />
-          측정 SPS
+          낭독 속도(추정)
         </div>
       </div>
     </div>
@@ -438,7 +438,7 @@ export default function ResultsDashboard({ clientName }: Props) {
             </div>
 
             <div className="rounded-xl bg-slate-50 p-4">
-              <div className="text-sm text-slate-500">측정 SPS</div>
+              <div className="text-sm text-slate-500">낭독 속도(추정)</div>
               <div className="mt-1 text-lg font-semibold text-slate-900">
                 {latest.measuredSps.toFixed(2)}
               </div>
@@ -487,7 +487,7 @@ export default function ResultsDashboard({ clientName }: Props) {
       <section className="rounded-2xl bg-white p-6 shadow-sm">
         <h2 className="text-2xl font-semibold text-slate-900">최근 SPS 변화</h2>
         <p className="mt-2 text-sm text-slate-500">
-          최근 10회 기준으로 목표 SPS와 측정 SPS를 표시합니다.
+          최근 10회 기준으로 목표 SPS와 낭독 속도(추정)를 표시합니다.
         </p>
 
         <div className="mt-5">
@@ -643,7 +643,7 @@ export default function ResultsDashboard({ clientName }: Props) {
                   <th className="px-3 py-3">모듈</th>
                   <th className="px-3 py-3">대상자</th>
                   <th className="px-3 py-3">목표 SPS</th>
-                  <th className="px-3 py-3">측정 SPS</th>
+                  <th className="px-3 py-3">낭독 속도(추정)</th>
                   <th className="px-3 py-3">결과</th>
                   <th className="px-3 py-3">읽기 단위</th>
                 </tr>

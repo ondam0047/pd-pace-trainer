@@ -128,6 +128,10 @@ export default function SpeechRatePage() {
           .webkitAudioContext;
       const ctx = new Ctx();
       audioCtxRef.current = ctx;
+      // 자동재생 정책으로 suspended 면 onaudioprocess 가 안 울려 녹음이 통째로 빈다 → 명시적 재개
+      if (ctx.state === "suspended") {
+        try { await ctx.resume(); } catch { /* noop */ }
+      }
       const source = ctx.createMediaStreamSource(stream);
       sourceRef.current = source;
       const proc = ctx.createScriptProcessor(4096, 1, 1);

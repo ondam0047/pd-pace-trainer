@@ -21,7 +21,7 @@ const W = 460;
 const H = 380;
 const CX = W / 2;
 const CY = H / 2;
-const RING = 65; // 비율 1.0 (정상 임계)
+const RING = 65; // 비율 1.0 (참고 범위 상한)
 const MAX_RATIO = 2;
 
 function pt(ratio: number, angleDeg: number): [number, number] {
@@ -71,6 +71,6 @@ ${grid}
 ${spokes}
 <polygon points="${polygon}" fill="#3b82f6" fill-opacity="0.15" stroke="#2563eb" stroke-width="1.5" />
 ${dots}
-<text x="${CX}" y="${CY - RING - 4}" text-anchor="middle" font-size="9" fill="#16a34a" font-weight="700">정상 임계</text>
+<text x="${CX}" y="${CY - RING - 4}" text-anchor="middle" font-size="9" fill="#16a34a" font-weight="700">참고 범위</text>
 </svg>`;
 }

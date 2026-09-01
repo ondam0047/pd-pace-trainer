@@ -61,6 +61,10 @@ export default function VoiceQualityPage() {
       const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const ctx = new Ctx();
       audioCtxRef.current = ctx;
+      // 자동재생 정책으로 suspended 면 onaudioprocess 가 안 울려 녹음이 통째로 빈다 → 명시적 재개
+      if (ctx.state === "suspended") {
+        try { await ctx.resume(); } catch { /* noop */ }
+      }
       const source = ctx.createMediaStreamSource(stream);
       sourceRef.current = source;
       const processor = ctx.createScriptProcessor(4096, 1, 1);
@@ -229,7 +233,7 @@ export default function VoiceQualityPage() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-blue-700">🔵 음향 분석</p>
           <h1 className="mt-2 text-3xl font-bold text-slate-900">음질 분석 (MDVP)</h1>
-          <p className="mt-2 max-w-3xl text-slate-600">3초간 안정된 아— 발성을 녹음하거나 녹음 파일을 업로드하면 MDVP 정렬 파라미터(F0·Jitter·Shimmer·NHR 등)를 자동 산출하고 병리 임계값과 대조합니다.</p>
+          <p className="mt-2 max-w-3xl text-slate-600">3초간 안정된 아— 발성을 녹음하거나 녹음 파일을 업로드하면 MDVP 정렬 파라미터(F0·Jitter·Shimmer·NHR 등)를 자동 산출하고 참고 범위와 대조합니다. 정상·비정상 판정은 하지 않습니다.</p>
           <p className="mt-1 max-w-3xl text-xs text-amber-700">⚠ 브라우저 계산이므로 Praat보다 정확도가 낮을 수 있습니다. 임상 획립은 Praat 결과와 대조하세요.</p>
         </div>
         {errorMsg && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{errorMsg}</div>}
@@ -301,7 +305,7 @@ export default function VoiceQualityPage() {
                   <MdvpRadar result={currentResult} />
                 </div>
                 <p className="text-center text-xs text-slate-500">
-                  초록 원 = 정상 임계값 · 점이 원 밖(빨강)이면 이상
+                  초록 원 = 참고 범위 · 점이 원 밖이면 참고 범위를 벗어남
                 </p>
               </div>
 
@@ -400,14 +404,14 @@ export default function VoiceQualityPage() {
         )}
 
         <details className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <summary className="cursor-pointer text-sm font-medium text-slate-700">MDVP 파라미터 · 정상 임계값 + 근거</summary>
+          <summary className="cursor-pointer text-sm font-medium text-slate-700">MDVP 파라미터 · 참고 범위 + 근거</summary>
           <div className="mt-3 space-y-3 text-sm">
             <table className="w-full text-slate-700">
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                   <th className="py-1 pr-2">코드</th>
                   <th className="py-1 pr-2">의미</th>
-                  <th className="py-1">정상 기준 (이하)</th>
+                  <th className="py-1">참고 범위 (이하)</th>
                 </tr>
               </thead>
               <tbody className="text-sm tabular-nums">
@@ -499,7 +503,7 @@ function MetricRow({
             }`}
             title={threshold}
           >
-            {status === "normal" ? "정상" : "이상"}
+            {status === "normal" ? "범위 내" : "범위 밖"}
           </span>
         ) : (
           <span className="text-[10px] text-slate-400">참고</span>

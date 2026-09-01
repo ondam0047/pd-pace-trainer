@@ -181,6 +181,10 @@ export default function MptPage() {
       const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const ctx = new Ctx();
       audioCtxRef.current = ctx;
+      // 자동재생 정책으로 suspended 면 분석 프레임이 전부 0 → 발성 지속시간이 0 으로 측정된다
+      if (ctx.state === "suspended") {
+        try { await ctx.resume(); } catch { /* noop */ }
+      }
       const src = ctx.createMediaStreamSource(stream);
       const a = ctx.createAnalyser();
       a.fftSize = 2048;

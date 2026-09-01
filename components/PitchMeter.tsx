@@ -223,6 +223,10 @@ export default function PitchMeter() {
           .webkitAudioContext;
       const ctx = new Ctx();
       audioCtxRef.current = ctx;
+      // 자동재생 정책으로 suspended 면 분석 프레임이 전부 0 → F0·dB 가 안 그려진다
+      if (ctx.state === "suspended") {
+        try { await ctx.resume(); } catch { /* noop */ }
+      }
 
       const source = ctx.createMediaStreamSource(stream);
       sourceRef.current = source;

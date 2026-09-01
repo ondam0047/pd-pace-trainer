@@ -84,7 +84,7 @@ export default function VhiPage() {
 
   const result = computeVhi(answers);
   const item = VHI_ITEMS[idx];
-  const SEV_STEPS = ["정상", "살짝 좋지 않음", "좋지 않음", "심각함"];
+  const SEV_STEPS = ["불편 거의 없음", "살짝 좋지 않음", "좋지 않음", "심각함"];
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-10">
@@ -256,8 +256,8 @@ export default function VhiPage() {
                   ))}
                 </div>
                 <p className="mt-3 text-xs text-slate-500">
-                  선별 절단점 ≈ 15점(이상 시 음성장애 의심), 임상적 유의 변화
-                  ≈ 18점. 구간(정상 0–14 · 살짝 좋지 않음 15–30 · 좋지 않음
+                  참고 절단점 ≈ 15점(이 이상이면 음성 관련 불편 호소가 큰 편), 임상적 유의 변화
+                  ≈ 18점. 구간(불편 거의 없음 0–14 · 살짝 좋지 않음 15–30 · 좋지 않음
                   31–60 · 심각함 61–120)은 해석 보조용입니다.
                 </p>
               </div>

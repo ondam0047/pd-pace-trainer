@@ -53,6 +53,15 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${notoSansKR.variable} ${fraunces.variable} ${jetbrainsMono.variable} antialiased`}
       >
         {children}
+        {/* 비의료기기 면책 — 개별 페이지가 빠뜨릴 수 없도록 루트에서 1회 고정 노출 */}
+        <p
+          role="note"
+          className="border-t border-slate-200 bg-slate-50 px-6 py-3 text-center text-[11px] leading-relaxed text-slate-500"
+        >
+          본 도구는 교육·임상·연구 보조용이며 진단 도구가 아닙니다. 표기되는
+          참고 범위·절단점은 해석을 돕기 위한 것으로 정상·비정상 판정이 아니며,
+          임상 판단은 전문가 확인을 거쳐야 합니다.
+        </p>
       </body>
     </html>
   );

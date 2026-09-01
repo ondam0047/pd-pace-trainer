@@ -220,6 +220,12 @@ export default function FluencyPage() {
   const startRecording = useCallback(async () => {
     setMicError(null);
     setTranscript("");
+    if (typeof MediaRecorder === "undefined") {
+      setMicError(
+        "이 브라우저에서는 녹음을 사용할 수 없습니다. 크롬·엣지 최신 버전을 권장하거나, 오디오 파일 업로드를 사용하세요.",
+      );
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -976,6 +982,10 @@ export default function FluencyPage() {
                 <ResultBox label="AD 점수 (×1.5)" value={validSyll ? adScore.toFixed(2) : "-"} sub={`비정상적 ${adCount}회`} accent="rose" />
                 <ResultBox label="총점 (필수과제)" value={validSyll ? totalScore.toFixed(2) : "-"} sub="ND + AD" accent="amber" highlight />
               </div>
+              <p className="mt-2 text-xs text-slate-500">
+                &lsquo;정상적/비정상적 비유창(ND·AD)&rsquo;은 P-FA-II 채점 체계의
+                용어이며, 대상자에 대한 정상·비정상 판정이 아닙니다.
+              </p>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div>

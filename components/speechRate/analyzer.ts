@@ -24,25 +24,37 @@ export function analyzeSpeechRate(
     longPauseMs?: number;
   },
 ): SpeechRateResult {
-  const threshold = options?.threshold ?? 0.012;
   const minPauseMs = options?.minPauseMs ?? 100;
   const longPauseMs = options?.longPauseMs ?? 250;
 
   const frameSize = Math.round(sampleRate * 0.025);
   const hopSize = Math.round(sampleRate * 0.01);
 
+  // 1차: 프레임별 RMS
   const frameTimes: number[] = [];
-  const isVoiced: boolean[] = [];
+  const rmsArr: number[] = [];
   for (let start = 0; start + frameSize <= signal.length; start += hopSize) {
     let sumSq = 0;
     for (let i = 0; i < frameSize; i++) {
       const s = signal[start + i];
       sumSq += s * s;
     }
-    const rms = Math.sqrt(sumSq / frameSize);
     frameTimes.push(start / sampleRate);
-    isVoiced.push(rms > threshold);
+    rmsArr.push(Math.sqrt(sumSq / frameSize));
   }
+
+  // 적응형 임계: 녹음 레벨이 작아도 쉼/발화를 구분하도록 잡음바닥+여유로 자동 설정.
+  // (고정 임계 0.012 는 소리가 작은 녹음에서 전부 '쉼'으로 잡혀 조음속도가 0이 되는 문제가 있었음)
+  let threshold = options?.threshold;
+  if (threshold == null) {
+    const sorted = [...rmsArr].sort((a, b) => a - b);
+    const pct = (p: number) =>
+      sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] : 0;
+    const noise = pct(0.15);
+    const peak = pct(0.95);
+    threshold = Math.max(0.006, noise + 0.12 * Math.max(0, peak - noise));
+  }
+  const isVoiced: boolean[] = rmsArr.map((r) => r > (threshold as number));
 
   if (isVoiced.length === 0) {
     return {

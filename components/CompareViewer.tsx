@@ -570,7 +570,7 @@ export default function CompareViewer() {
                 onClick={resetActual}
                 className="rounded bg-emerald-50 px-2 py-0.5 text-[11px] font-normal text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100"
               >
-                정상(목표와 동일)
+                목표대로 산출
               </button>
             </div>
             {current.note && (

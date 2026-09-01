@@ -11,6 +11,7 @@ import {
   saveTrainingSettings,
   type TrainingModuleSettings,
 } from "./trainingSettingsStorage";
+import { DEFAULT_CONSTRAINTS } from "./audio/useAudioAnalyser";
 import { saveTrainingRecord } from "./trainingStorage";
 import {
   CustomPreset,
@@ -316,7 +317,8 @@ export default function PacingBar() {
         return false;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // AGC·노이즈억제가 켜진 채로 열면 녹음 음량이 자동 보정돼 회기 간 비교가 깨진다.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: DEFAULT_CONSTRAINTS });
       mediaStreamRef.current = stream;
 
       const mediaRecorder = new MediaRecorder(stream);
@@ -626,7 +628,7 @@ export default function PacingBar() {
               </span>
             </div>
             <div>
-              <strong>실제 SPS:</strong>{" "}
+              <strong>낭독 속도(추정):</strong>{" "}
               <span style={{ fontWeight: 700, color: feedback === "빠름" ? "#c62828" : feedback === "적절" ? "#2e7d32" : feedback === "느림" ? "#1565c0" : "#222" }}>
                 {measuredSps !== null ? measuredSps : "-"}
               </span>
@@ -636,6 +638,11 @@ export default function PacingBar() {
               <span style={{ ...getFeedbackStyle(feedback), display: "inline-block", padding: "4px 10px", borderRadius: 999, fontWeight: 700 }}>
                 {feedback || "-"}
               </span>
+            </div>
+            <div style={{ gridColumn: "1 / -1", color: "#8a6d3b", background: "#fff8e6", border: "1px solid #f0dca8", borderRadius: 8, padding: "8px 10px", fontSize: 13, lineHeight: 1.6 }}>
+              ⚠ <strong>낭독 속도(추정)</strong>은 <strong>제시 문구의 음절 수 ÷ 녹음 시간</strong>으로 계산한 값입니다.
+              음성을 분석한 값이 아니므로, 대상자가 문구를 끝까지 읽지 않았거나 다른 말을 한 경우에는 실제 말속도와 다릅니다.
+              실측이 필요하면 <strong>말속도 분석</strong> 모듈을 사용하세요.
             </div>
             <div><strong>녹음 시간:</strong> {recordingSec !== null ? `${recordingSec}초` : "-"}</div>
           </div>

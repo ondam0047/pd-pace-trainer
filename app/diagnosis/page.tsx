@@ -18,6 +18,10 @@ export default function DiagnosisPage() {
           <p className="mt-2 text-sm font-semibold text-amber-700">
             파킨슨 하위 유형 분류
           </p>
+          <p className="mt-4 rounded-lg border border-amber-300 bg-amber-100 px-4 py-3 text-sm font-semibold text-amber-900">
+            ⚠ 외부 연구용 프로토타입입니다. 진단 도구가 아니며 임상 판단에
+            사용하지 마세요. Voice Lab 은 이 앱의 결과를 산출하지 않습니다.
+          </p>
           <p className="mt-6 leading-relaxed text-amber-900">
             본 모듈은 별도의 Streamlit + Python 백엔드로 동작합니다.
             parselmouth(Praat)와 scikit-learn으로 음향 피처를 추출하고

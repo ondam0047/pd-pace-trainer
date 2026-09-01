@@ -434,7 +434,7 @@ export default function TrainingHistory({
                   </div>
 
                   <div className="rounded-xl bg-white p-3">
-                    <p className="mb-1 text-xs text-slate-500">측정 SPS</p>
+                    <p className="mb-1 text-xs text-slate-500">낭독 속도(추정)</p>
                     <p className="text-sm font-semibold text-slate-800">
                       {safeNumber(item.measuredSps).toFixed(2)}
                     </p>

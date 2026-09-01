@@ -44,6 +44,10 @@ export default function DafPage() {
       const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const ctx = new Ctx();
       audioCtxRef.current = ctx;
+      // 자동재생 정책으로 suspended 면 지연음이 아예 안 나온다 → 명시적 재개
+      if (ctx.state === "suspended") {
+        try { await ctx.resume(); } catch { /* noop */ }
+      }
       const source = ctx.createMediaStreamSource(stream);
       sourceRef.current = source;
       const delay = ctx.createDelay(1.0);

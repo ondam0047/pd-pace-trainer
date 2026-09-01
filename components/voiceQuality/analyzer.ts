@@ -183,7 +183,7 @@ export function analyzeVoiceQuality(
   };
 }
 
-// MDVP 병리 임계값 (이 값을 초과하면 이상)
+// MDVP 참고 임계값 (이 값을 초과하면 참고 범위 밖 — 판정이 아니다)
 export const MDVP_THRESHOLDS = {
   jitaUs: 83.2,
   jitterLocal: 1.04,
@@ -206,7 +206,7 @@ export function getStatus(
   return value <= MDVP_THRESHOLDS[key] ? "normal" : "abnormal";
 }
 
-// HNR 은 MDVP 항목은 아니나 보조 지표 (높을수록 정상)
+// HNR 은 MDVP 항목은 아니나 보조 지표 (높을수록 양호)
 export const HNR_NORMAL = 20;
 export function getHnrStatus(value: number): "normal" | "abnormal" {
   return value >= HNR_NORMAL ? "normal" : "abnormal";

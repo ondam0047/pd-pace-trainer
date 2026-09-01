@@ -25,7 +25,7 @@ export type UseAudioAnalyser = {
   audioCtxRef: React.RefObject<AudioContext | null>;
 };
 
-const DEFAULT_CONSTRAINTS: MediaTrackConstraints = {
+export const DEFAULT_CONSTRAINTS: MediaTrackConstraints = {
   echoCancellation: false,
   noiseSuppression: false,
   autoGainControl: false,
@@ -82,6 +82,10 @@ export function useAudioAnalyser(options: UseAudioAnalyserOptions = {}): UseAudi
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const ctx = new Ctx();
       audioCtxRef.current = ctx;
+      // 자동재생 정책으로 suspended 면 분석 프레임이 전부 0 으로 나온다 → 명시적 재개
+      if (ctx.state === "suspended") {
+        try { await ctx.resume(); } catch { /* noop */ }
+      }
       const source = ctx.createMediaStreamSource(stream);
       const a = ctx.createAnalyser();
       a.fftSize = fftSize;

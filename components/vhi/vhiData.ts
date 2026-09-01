@@ -69,9 +69,9 @@ export interface VhiResult {
   severity: string;
 }
 
-// 중증도 구분 — 선별 절단점(≈15)과 경도/중등도/중도 표준 구간 기반
+// 불편 정도 구간 — 참고 절단점(≈15)과 경도/중등도/중도 표준 구간 기반. 판정이 아니라 해석 보조.
 export function vhiSeverity(total: number): string {
-  if (total <= 14) return "정상";
+  if (total <= 14) return "불편 거의 없음";
   if (total <= 30) return "살짝 좋지 않음";
   if (total <= 60) return "좋지 않음";
   return "심각함";
