@@ -20,10 +20,10 @@ export default function ArticulatorVerifyPage() {
             조음기관 음소 산출
           </h1>
           <Link
-            href="/articulator-compare"
+            href="/articulator-3d"
             className="text-sm text-slate-600 hover:text-slate-900"
           >
-            목표 vs 실제 비교 →
+            조음기관 3D →
           </Link>
         </div>
 

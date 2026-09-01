@@ -13,14 +13,9 @@ import {
   type VoiceLabRecord,
 } from "@/components/voiceLabHistory";
 
-const MODULES: VoiceLabModuleId[] = [
-  "mpt",
-  "voice_quality",
-  "intensity_trainer",
-  "speech_rate",
-  "fluency",
-  "pitch",
-];
+// 필터 목록은 MODULE_LABELS 에서 파생한다 — 손으로 나열하면 모듈이 늘 때마다
+// 누락된다(vhi·articulation_train 기록이 저장은 되는데 필터에 안 뜨던 버그).
+const MODULES = Object.keys(MODULE_LABELS) as VoiceLabModuleId[];
 
 export default function HistoryPage() {
   const [records, setRecords] = useState<VoiceLabRecord[]>([]);
