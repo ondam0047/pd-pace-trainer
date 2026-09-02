@@ -156,6 +156,57 @@ export default function SpontaneousClient() {
     }
   };
 
+  /**
+   * 음성에서 들린 대로 산출형을 전사한다(아동 발화 중 빈칸만).
+   * 원본 파일은 한 번만 올리고 구간은 서버가 자른다.
+   */
+  const transcribeProduced = async () => {
+    setError(null);
+    const file = audioFileRef.current;
+    if (!file) {
+      setError("음성 파일이 없습니다. 파일을 올린 뒤 사용하세요(샘플 전사에는 오디오가 없습니다).");
+      return;
+    }
+    const targets = rows
+      .map((r, i) => ({ r, i }))
+      .filter(({ r }) => r.speaker === "아동" && !(r.produced ?? "").trim() && r.end > r.start);
+    if (!targets.length) {
+      setNotice("자동 전사할 대상이 없습니다(아동 발화 중 산출형이 빈 행만 채웁니다).");
+      return;
+    }
+    setBusy(`산출형 자동 전사 중… (${targets.length}개, 발화당 몇 초 걸립니다)`);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append(
+        "segments",
+        JSON.stringify(targets.map(({ r }) => ({ start: r.start, end: r.end }))),
+      );
+      const j = (await api("/produced", { method: "POST", body: fd })) as {
+        results: { text: string; error?: string }[];
+      };
+      const next = rows.slice();
+      let ok = 0;
+      let failed = 0;
+      targets.forEach(({ i }, k) => {
+        const res = j.results[k];
+        if (res?.error || !res?.text) { failed++; return; }
+        next[i] = { ...next[i], produced: res.text };
+        ok++;
+      });
+      setRows(next);
+      setNotice(
+        `산출형 ${ok}개를 음성에서 전사했습니다${failed ? ` (${failed}개 실패)` : ""}. ` +
+        "⚠️ 자동 전사는 초안입니다 — 한국어 조음장애 아동 말소리는 인식 정확도가 낮으니 " +
+        "반드시 재생해 들으며 P 키로 확인·수정하세요.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   // ── 4) 분석 ───────────────────────────────────────────────────────────
   const childRows = useMemo(() => rows.filter((r) => r.speaker === "아동" && r.text.trim()), [rows]);
 
@@ -323,12 +374,21 @@ export default function SpontaneousClient() {
 
             <div className="flex flex-wrap gap-2">
               {mode === "articulation" && (
-                <button
-                  type="button" onClick={fillProduced} disabled={!!busy}
-                  className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  📝 산출형 = 목표 발음형으로 채우기
-                </button>
+                <>
+                  <button
+                    type="button" onClick={transcribeProduced} disabled={!!busy || !audioUrl}
+                    title={audioUrl ? "" : "음성 파일을 올려야 사용할 수 있습니다"}
+                    className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                  >
+                    🎧 산출형 자동 전사 (들린 대로)
+                  </button>
+                  <button
+                    type="button" onClick={fillProduced} disabled={!!busy}
+                    className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    📝 산출형 = 목표 발음형으로 채우기
+                  </button>
+                </>
               )}
               <button
                 type="button" onClick={analyze} disabled={!!busy || childRows.length === 0}
